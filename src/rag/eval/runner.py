@@ -23,7 +23,8 @@ from rag.eval.metrics.retrieval import (
 class TierAResult(BaseModel):
     overall: dict[str, float]
     by_provenance: dict[str, dict[str, float]]
-    reranker_lift: float
+    reranker_lift: float | None
+    reranked: bool = False
     scored_queries: int
     per_query: list[dict[str, Any]] = Field(default_factory=list)
     provenance: dict[str, Any] = Field(default_factory=dict)
@@ -74,42 +75,58 @@ def run_tier_a(
     retriever: Any,
     settings: Settings,
     k: int = 5,
+    measure_lift: bool = True,
 ) -> TierAResult:
-    scored = [q for q in queries if not q.expect_refusal]
+    """Score the golden set against the pipeline *as configured*.
 
-    reranked_rows: list[dict[str, float]] = []
-    fused_rows: list[dict[str, float]] = []
+    The headline metrics describe the configuration that actually runs, so a report can
+    never advertise a pipeline nobody uses. Reranker lift stays measurable but is a second
+    pass over every query, so it is skippable: with reranking disabled it costs ~2.3 s per
+    query to restate a number already recorded in ADR-003.
+    """
+    scored = [q for q in queries if not q.expect_refusal]
+    reranked = settings.retrieval.rerank_enabled
+
+    primary_rows: list[dict[str, float]] = []
+    contrast_rows: list[dict[str, float]] = []
     by_provenance: dict[str, list[dict[str, float]]] = {"hand": [], "synthetic": []}
     per_query: list[dict[str, Any]] = []
 
     for query in scored:
-        reranked = retriever.search(query.query, k=k, rerank=True)
-        fused = retriever.search(query.query, k=k, rerank=False)
+        primary = retriever.search(query.query, k=k, rerank=reranked)
+        primary_scores = _score_one(query, primary, k)
 
-        reranked_scores = _score_one(query, reranked, k)
-        fused_scores = _score_one(query, fused, k)
+        if measure_lift:
+            contrast = retriever.search(query.query, k=k, rerank=not reranked)
+            contrast_rows.append(_score_one(query, contrast, k))
 
-        reranked_rows.append(reranked_scores)
-        fused_rows.append(fused_scores)
-        by_provenance[query.provenance].append(reranked_scores)
+        primary_rows.append(primary_scores)
+        by_provenance[query.provenance].append(primary_scores)
         per_query.append(
             {
                 "id": query.id,
                 "query": query.query,
                 "provenance": query.provenance,
-                "scores": reranked_scores,
-                "retrieved": [r.chunk.chunk_id for r in reranked],
+                "scores": primary_scores,
+                "retrieved": [r.chunk.chunk_id for r in primary],
             }
         )
 
-    overall = _mean(reranked_rows)
-    fused_overall = _mean(fused_rows)
-    lift = overall.get(f"ndcg@{k}", 0.0) - fused_overall.get(f"ndcg@{k}", 0.0)
+    overall = _mean(primary_rows)
+
+    lift: float | None = None
+    if measure_lift:
+        contrast_overall = _mean(contrast_rows)
+        # Lift is always NDCG(rerank on) - NDCG(rerank off), whichever pass was primary.
+        on = overall if reranked else contrast_overall
+        off = contrast_overall if reranked else overall
+        lift = on.get(f"ndcg@{k}", 0.0) - off.get(f"ndcg@{k}", 0.0)
 
     return TierAResult(
         overall=overall,
         by_provenance={name: _mean(rows) for name, rows in by_provenance.items()},
         reranker_lift=lift,
+        reranked=reranked,
         scored_queries=len(scored),
         per_query=per_query,
         provenance={

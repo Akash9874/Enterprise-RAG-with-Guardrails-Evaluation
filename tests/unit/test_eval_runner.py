@@ -110,3 +110,30 @@ def test_is_deterministic_across_runs() -> None:
     first = run_tier_a(queries, retriever, Settings(), k=5)
     second = run_tier_a(queries, retriever, Settings(), k=5)
     assert first.overall == second.overall
+
+
+def test_headline_metrics_follow_the_configured_rerank_setting() -> None:
+    """The report must describe the pipeline as configured, not a pipeline nobody runs."""
+    queries = [GoldenQuery(id="q1", query="q", provenance="hand", relevant_chunk_ids=["a"])]
+    retriever = _retriever(
+        {
+            True: [_retrieved("z"), _retrieved("a")],  # reranked: relevant second
+            False: [_retrieved("a"), _retrieved("z")],  # fused: relevant first
+        }
+    )
+    settings = Settings()
+    settings.retrieval.rerank_enabled = False
+    result = run_tier_a(queries, retriever, settings, k=5)
+    assert result.overall["mrr"] == 1.0  # scored the fused ordering
+
+    settings.retrieval.rerank_enabled = True
+    result = run_tier_a(queries, retriever, settings, k=5)
+    assert result.overall["mrr"] == 0.5  # scored the reranked ordering
+
+
+def test_lift_can_be_skipped_so_the_second_pass_is_not_paid_for() -> None:
+    queries = [GoldenQuery(id="q1", query="q", provenance="hand", relevant_chunk_ids=["a"])]
+    retriever = _retriever({True: [_retrieved("a")], False: [_retrieved("a")]})
+    result = run_tier_a(queries, retriever, Settings(), k=5, measure_lift=False)
+    assert result.reranker_lift is None
+    assert retriever.search.call_count == 1
