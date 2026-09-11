@@ -443,11 +443,14 @@ from __future__ import annotations
 import hashlib
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
 DEFAULT_CONFIG_PATH = Path("config/settings.yaml")
 
@@ -496,6 +499,28 @@ class Settings(BaseSettings):
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Precedence, highest first: init kwargs > env vars > YAML > field defaults.
+
+        Passing YAML as init kwargs would invert this and let the file silently beat the
+        environment, which is the opposite of what deployment expects.
+        """
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            YamlConfigSettingsSource(settings_cls),
+            file_secret_settings,
+        )
+
     def config_hash(self) -> str:
         """Short digest of the effective config. Stamped into every eval report (FR-E4)."""
         payload = self.model_dump_json()
@@ -503,13 +528,23 @@ class Settings(BaseSettings):
 
 
 def load_settings(config_path: Path | None = None) -> Settings:
+    """Build settings from a YAML file, env vars, and defaults.
+
+    The YAML path is bound through a subclass because `settings_customise_sources` is a
+    classmethod with no access to per-call arguments. `Settings()` on its own reads env
+    vars and defaults only.
+    """
     path = config_path if config_path is not None else DEFAULT_CONFIG_PATH
-    overrides: dict[str, Any] = {}
-    if path.exists():
-        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if isinstance(loaded, dict):
-            overrides = loaded
-    return Settings(**overrides)
+
+    class _Configured(Settings):
+        model_config = SettingsConfigDict(
+            env_prefix="RAG_",
+            env_nested_delimiter="__",
+            extra="ignore",
+            yaml_file=path,
+        )
+
+    return _Configured()
 
 
 @lru_cache(maxsize=1)
