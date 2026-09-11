@@ -618,7 +618,10 @@ git commit -m "feat: add layered settings with yaml and env overrides"
 ```yaml
 services:
   qdrant:
-    image: qdrant/qdrant:v1.12.4
+    # Keep this in step with the resolved `qdrant-client` version in uv.lock. The client
+    # warns when the minor versions diverge by more than one, and Phase 1 depends on the
+    # Query API (prefetch + FusionQuery RRF) and sparse vectors with the IDF modifier.
+    image: qdrant/qdrant:v1.19.0
     ports:
       - "6333:6333"
       - "6334:6334"
