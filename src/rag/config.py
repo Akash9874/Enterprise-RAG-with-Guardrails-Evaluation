@@ -51,7 +51,8 @@ class RetrievalSettings(BaseModel):
     rrf_k: int = 60
     context_budget_tokens: int = 2400
     relevance_floor: float = 0.0
-    rerank_enabled: bool = True
+    # Measured negative lift and ~2.3 s/query cost on the real corpus — see ADR-003.
+    rerank_enabled: bool = False
 
 
 class QdrantSettings(BaseModel):

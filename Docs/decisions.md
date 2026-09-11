@@ -50,12 +50,47 @@ one-line swap.
 **Decision.** Use `cross-encoder/ms-marco-MiniLM-L-6-v2` (22M) instead.
 
 **Rationale.** On this CPU, the 560M cross-encoder costs roughly 2 seconds per query to score
-30 candidate pairs. MiniLM does the same work in ~25 ms — about 1/80th the cost — and retains
-most of the ranking quality.
+30 candidate pairs. MiniLM was expected to do the same work in ~25 ms — about 1/80th the cost —
+and to retain most of the ranking quality.
 
-**Consequences.** The quality gap is real but unmeasured at design time. The eval harness
+**Consequences.** The quality gap is real but was unmeasured at design time. The eval harness
 computes **reranker lift** (ΔNDCG@k with reranking on vs off), so this trade is reported as a
-number rather than assumed. Revisiting `bge-reranker-large` requires measuring that lift first.
+number rather than assumed.
+
+### Measured, 2026-09-11 — the assumption did not survive contact with the harness
+
+First Tier A run against the real corpus (476 chunks, 71 files; 28 hand-authored queries;
+file-level ground truth; corpus `da28d90`):
+
+| k_fuse | NDCG@5 (rerank on) | reranker lift | Recall@5 | wall time, 28 queries |
+|---|---|---|---|---|
+| 30 | 0.646 | **−0.1056** | 0.696 | 76.6 s |
+| 20 | 0.674 | −0.0780 | 0.732 | 49.3 s |
+| 10 | 0.706 | −0.0460 | 0.750 | 25.3 s |
+| 5  | 0.732 | −0.0058 | 0.786 | 13.8 s |
+| **off** | **0.752** | — | **0.786** | **1.3 s** |
+
+Two findings, both against the design assumption:
+
+1. **The ~25 ms estimate was wrong by two orders of magnitude.** It was taken on short strings.
+   Real chunks here are ~1300 chars at the median and 4355 at the max, and cross-encoder cost
+   scales with sequence length: scoring 28 real candidates costs **2.3 s** with all 6 cores
+   busy (6.0 s single-threaded). That alone breaches NFR-7 (retrieval p95 ≤ 800 ms).
+2. **Lift is negative at every `k_fuse`**, trending to zero only as the reranker is given less
+   to do. Fusion-only scores best on every metric: NDCG@5 0.752, Recall@5 0.786, Hit@5 0.857,
+   MRR 0.671 — for the whole set in 1.3 s.
+
+**Decision (revised).** `rerank_enabled` now defaults to **false**. The reranker as configured
+costs ~75 s per eval run and makes every measured metric worse; keeping it on by default could
+not be defended with a number.
+
+**Caveat, stated deliberately.** This ground truth is **file-level**, not chunk-level. A
+cross-encoder reorders passages within the candidate set, and file-level scoring may under-credit
+that. Chunk-level ground truth could change the quality half of this result — it cannot change
+the latency half. Revisit when `relevant_chunk_ids` is populated.
+
+The code and the per-request toggle stay. Lift remains measurable, which is the point: this
+decision is reversible the moment a measurement justifies reversing it.
 
 ---
 

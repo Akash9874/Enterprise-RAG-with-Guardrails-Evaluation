@@ -1,0 +1,145 @@
+# Hand-authored golden queries. Ground truth is known because the author wrote the source.
+# Target: ~25 hand + ~25 synthetic. Score the halves separately — never pool them.
+#
+# relevant_chunk_ids is filled in after the first real ingest; relevant_files works
+# immediately and is what Tier A scores against until then.
+
+- id: q-h001
+  query: How does the retriever combine dense and sparse results?
+  provenance: hand
+  relevant_files: [src/rag/retrieval/hybrid.py]
+
+- id: q-h002
+  query: Why was bge-reranker-large rejected?
+  provenance: hand
+  relevant_files: [Docs/decisions.md]
+
+- id: q-h003
+  query: What keeps ingestion idempotent across runs?
+  provenance: hand
+  relevant_files: [src/rag/contracts.py]
+
+- id: q-h004
+  query: How are markdown chunks given readable citations?
+  provenance: hand
+  relevant_files: [src/rag/ingest/chunkers/markdown.py]
+
+- id: q-h005
+  query: What prevents a transformer from loading at import time?
+  provenance: hand
+  relevant_files: [src/rag/models/registry.py]
+
+- id: q-h006
+  query: Which files are skipped when walking the repository?
+  provenance: hand
+  relevant_files: [src/rag/ingest/loaders.py]
+
+- id: q-h007
+  query: How does the code chunker find function and class boundaries?
+  provenance: hand
+  relevant_files: [src/rag/ingest/chunkers/code.py]
+
+- id: q-h008
+  query: What symbol path does a method inside a class get?
+  provenance: hand
+  relevant_files: [src/rag/ingest/chunkers/code.py]
+
+- id: q-h009
+  query: Why do sparse vectors use the IDF modifier?
+  provenance: hand
+  relevant_files: [src/rag/index/schema.py]
+
+- id: q-h010
+  query: How is a Qdrant point id derived from a chunk id?
+  provenance: hand
+  relevant_files: [src/rag/index/schema.py]
+
+- id: q-h011
+  query: What instruction prefix do bge models need, and on what?
+  provenance: hand
+  relevant_files: [src/rag/models/embedder.py]
+
+- id: q-h012
+  query: How does the health endpoint report dependency readiness?
+  provenance: hand
+  relevant_files: [src/rag/api/routes/health.py]
+
+- id: q-h013
+  query: How is configuration layered between YAML, env vars and defaults?
+  provenance: hand
+  relevant_files: [src/rag/config.py]
+
+- id: q-h014
+  query: What is the resident memory budget for models?
+  provenance: hand
+  relevant_files: [CLAUDE.md, Docs/prd.md]
+
+- id: q-h015
+  query: How does context assembly enforce the token budget?
+  provenance: hand
+  relevant_files: [src/rag/retrieval/context.py]
+
+- id: q-h016
+  query: Why are chunks never truncated mid-text?
+  provenance: hand
+  relevant_files: [src/rag/retrieval/context.py, src/rag/retrieval/CLAUDE.md]
+
+- id: q-h017
+  query: How is reranker lift defined and measured?
+  provenance: hand
+  relevant_files: [src/rag/eval/CLAUDE.md]
+
+- id: q-h018
+  query: Why are hand-authored and synthetic golden queries never pooled?
+  provenance: hand
+  relevant_files: [src/rag/eval/golden.py, src/rag/eval/CLAUDE.md]
+
+- id: q-h019
+  query: What must every evaluation report carry to be valid?
+  provenance: hand
+  relevant_files: [src/rag/eval/CLAUDE.md, CLAUDE.md]
+
+- id: q-h020
+  query: How is NDCG at k computed, and where are the off-by-one errors?
+  provenance: hand
+  relevant_files: [src/rag/eval/CLAUDE.md]
+
+- id: q-h021
+  query: How does the LLM client talk to Ollama?
+  provenance: hand
+  relevant_files: [src/rag/models/llm.py]
+
+- id: q-h022
+  query: What are the default k values for retrieval?
+  provenance: hand
+  relevant_files: [config/settings.yaml, src/rag/config.py]
+
+- id: q-h023
+  query: Why is fusion done server-side instead of in Python?
+  provenance: hand
+  relevant_files: [src/rag/retrieval/CLAUDE.md]
+
+- id: q-h024
+  query: How are quarantined chunks handled during retrieval?
+  provenance: hand
+  relevant_files: [src/rag/retrieval/CLAUDE.md, src/rag/index/qdrant_store.py]
+
+- id: q-h025
+  query: Why is a guardrail refusal returned as HTTP 200?
+  provenance: hand
+  relevant_files: [CLAUDE.md]
+
+- id: q-h026
+  query: How does the ingestion pipeline deduplicate chunks?
+  provenance: hand
+  relevant_files: [src/rag/ingest/pipeline.py]
+
+- id: q-h027
+  query: What ties are broken deterministically in retrieval ordering?
+  provenance: hand
+  relevant_files: [src/rag/retrieval/hybrid.py, src/rag/retrieval/CLAUDE.md]
+
+- id: q-h028
+  query: Which Python version is pinned and why not the system Python?
+  provenance: hand
+  relevant_files: [CLAUDE.md]
