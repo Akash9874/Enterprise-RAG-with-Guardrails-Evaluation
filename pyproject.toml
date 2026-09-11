@@ -46,7 +46,9 @@ src = ["src", "tests"]
 exclude = ["Docs"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
+# BLE flags blind `except Exception`. Readiness checks and provenance collection must
+# never raise, so they suppress it explicitly at the call site with a reason.
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "BLE"]
 
 [tool.mypy]
 python_version = "3.12"

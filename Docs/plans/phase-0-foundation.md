@@ -102,9 +102,15 @@ packages = ["src/rag"]
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
+# Ruff >=0.16 formats Python code blocks inside Markdown. Plan documents contain partial
+# snippets (method bodies meant to be pasted into a class), which it de-indents to module
+# level and corrupts. Docs are prose, not a build target — keep ruff out of them.
+exclude = ["Docs"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
+# BLE flags blind `except Exception`. Readiness checks and provenance collection must
+# never raise, so they suppress it explicitly at the call site with a reason.
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "BLE"]
 
 [tool.mypy]
 python_version = "3.12"
