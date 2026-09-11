@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 import rag
-from rag.api.routes import health
+from rag.api.routes import health, query
 
 
 def create_app() -> FastAPI:
@@ -13,6 +13,7 @@ def create_app() -> FastAPI:
         version=rag.__version__,
     )
     app.include_router(health.router)
+    app.include_router(query.router)
     return app
 
 

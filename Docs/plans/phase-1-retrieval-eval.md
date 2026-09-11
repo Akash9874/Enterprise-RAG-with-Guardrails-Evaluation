@@ -253,7 +253,7 @@ git commit -m "feat: add repository loader honouring gitignore and extension all
 - Produces: `estimate_tokens(text: str) -> int` and
   `chunk_markdown(file: LoadedFile, max_tokens: int = 512) -> list[Chunk]`
 
-Each chunk carries `header_path` — the full `H1 › H2 › H3` trail — which is used verbatim in
+Each chunk carries `header_path` — the full `H1 > H2 > H3` trail — which is used verbatim in
 citations (FR-I4). That is what makes a citation readable rather than a line number.
 
 - [ ] **Step 1: Write the failing test**
@@ -293,7 +293,7 @@ def test_splits_on_headers() -> None:
 def test_header_path_records_the_full_trail() -> None:
     chunks = chunk_markdown(_file())
     paths = {c.header_path for c in chunks}
-    assert "Architecture › Retrieval › Hybrid Search" in paths
+    assert "Architecture > Retrieval > Hybrid Search" in paths
 
 
 def test_top_level_section_has_a_single_segment_header_path() -> None:
@@ -360,7 +360,7 @@ from rag.contracts import Chunk, make_chunk_id
 from rag.ingest.loaders import LoadedFile
 
 HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3"), ("####", "h4")]
-SEPARATOR = " › "
+SEPARATOR = " > "
 
 # Approximate: ~4 characters per token. Accurate enough for budgeting, and it avoids
 # pulling a tokenizer into the ingest path.

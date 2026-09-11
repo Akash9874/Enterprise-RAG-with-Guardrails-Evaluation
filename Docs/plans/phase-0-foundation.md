@@ -1430,7 +1430,7 @@ def _retrieve() -> list[Retrieved]:
         text=SKELETON_TEXT,
         source_path="Docs/decisions.md",
         language="markdown",
-        header_path="ADR-007 › Qdrant with server-side RRF fusion",
+        header_path="ADR-007 > Qdrant with server-side RRF fusion",
         token_count=len(SKELETON_TEXT.split()),
     )
     return [Retrieved(chunk=chunk, fused_score=1.0, rank=1)]

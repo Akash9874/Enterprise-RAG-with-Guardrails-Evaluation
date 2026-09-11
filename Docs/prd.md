@@ -205,7 +205,7 @@ No module imports another module's internals.
 | FR-I1 | Walk a local directory, honouring `.gitignore` and a configurable include / exclude glob set. |
 | FR-I2 | Parse Python, JavaScript / TypeScript, Markdown, YAML, TOML, and plain text. Unknown extensions are skipped with a logged reason. |
 | FR-I3 | **Code chunking is AST-aware** via `tree-sitter`. Boundaries fall on function and class definitions. Each chunk carries its enclosing symbol path (e.g. `HybridRetriever.search`) and is never split mid-function unless it exceeds the token budget, in which case it splits on statement boundaries with a continuation marker. |
-| FR-I4 | **Markdown chunking is header-aware.** Each chunk carries its full header path (e.g. `Architecture › Retrieval › Hybrid Search`) as metadata, used verbatim in citations. |
+| FR-I4 | **Markdown chunking is header-aware.** Each chunk carries its full header path (e.g. `Architecture > Retrieval > Hybrid Search`) as metadata, used verbatim in citations. |
 | FR-I5 | Every chunk gets a stable, content-derived `chunk_id`, so re-ingestion is idempotent and golden-set references survive re-indexing. |
 | FR-I6 | Chunks are scanned for PII at ingest; detections are recorded in metadata and redacted per policy. |
 | FR-I7 | Chunks are scanned by the injection classifier at ingest. Chunks scoring above `t_block` are flagged `quarantined=true` and excluded from retrieval by default. |
@@ -350,7 +350,7 @@ class Chunk:
     source_path: str
     language: str
     symbol_path: str | None  # code: "HybridRetriever.search"
-    header_path: str | None  # markdown: "Architecture › Retrieval"
+    header_path: str | None  # markdown: "Architecture > Retrieval"
     start_line: int | None
     end_line: int | None
     token_count: int
