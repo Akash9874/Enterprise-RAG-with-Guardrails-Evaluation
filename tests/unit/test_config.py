@@ -38,3 +38,24 @@ def test_settings_hash_is_stable_and_content_sensitive() -> None:
     assert a.config_hash() == b.config_hash()
     c = Settings.model_validate({"retrieval": {"k_final": 7}})
     assert c.config_hash() != a.config_hash()
+
+
+def test_default_config_path_is_absolute_so_cwd_cannot_break_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A relative default path silently falls back to field defaults when the process
+    starts from anywhere but the project root -- config vanishes with no error."""
+    monkeypatch.chdir(tmp_path)
+    from rag.config import DEFAULT_CONFIG_PATH
+
+    assert DEFAULT_CONFIG_PATH.is_absolute()
+    assert DEFAULT_CONFIG_PATH.exists()
+
+
+def test_settings_load_correctly_from_an_unrelated_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    settings = load_settings()
+    assert settings.qdrant.vector_size == 384
+    assert settings.ollama.temperature == 0.0

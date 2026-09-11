@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock
 
+import pytest
 from ollama._types import ChatResponse, ListResponse, Message
 
 from rag.config import Settings
@@ -76,3 +77,21 @@ def test_handles_real_ollama_response_types_not_just_dicts() -> None:
 
     assert llm.is_ready() is True
     assert llm.generate("hi") == "grounded answer [1]"
+
+
+def test_client_is_constructed_with_the_configured_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a timeout a hung CPU generation blocks the request forever."""
+    captured: dict[str, object] = {}
+
+    def fake_client(host: str | None = None, **kwargs: object) -> MagicMock:
+        captured.update({"host": host, **kwargs})
+        return MagicMock()
+
+    monkeypatch.setattr("rag.models.llm.ollama.Client", fake_client)
+    settings = Settings()
+    OllamaClient(settings)
+
+    assert captured["host"] == settings.ollama.host
+    assert captured["timeout"] == settings.ollama.timeout_s

@@ -6,6 +6,7 @@ import hashlib
 from functools import lru_cache
 from pathlib import Path
 
+import structlog
 from pydantic import BaseModel, Field
 from pydantic_settings import (
     BaseSettings,
@@ -14,7 +15,23 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-DEFAULT_CONFIG_PATH = Path("config/settings.yaml")
+log = structlog.get_logger(__name__)
+
+
+def _project_root() -> Path:
+    """Locate the project root by walking up to the directory holding pyproject.toml.
+
+    Anchoring on the package file rather than the process working directory: a relative
+    default path resolves to nothing when the process starts anywhere else, and the YAML
+    is then skipped in silence, leaving every setting at its field default.
+    """
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "pyproject.toml").is_file():
+            return parent
+    return Path.cwd()
+
+
+DEFAULT_CONFIG_PATH = _project_root() / "config" / "settings.yaml"
 
 
 class ModelSettings(BaseModel):
@@ -97,6 +114,10 @@ def load_settings(config_path: Path | None = None) -> Settings:
     vars and defaults only.
     """
     path = config_path if config_path is not None else DEFAULT_CONFIG_PATH
+    if not path.exists():
+        # Never fall back in silence -- a missing config file looks identical to one
+        # whose every value happens to match the defaults.
+        log.warning("config_file_missing", path=str(path), using="field defaults")
 
     class _Configured(Settings):
         model_config = SettingsConfigDict(

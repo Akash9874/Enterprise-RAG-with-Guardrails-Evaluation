@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from rag.config import Settings, get_settings
+from rag.config import get_settings
 from rag.index.qdrant_store import QdrantStore
 from rag.models.llm import OllamaClient
 
@@ -17,7 +17,3 @@ def get_store() -> QdrantStore:
 @lru_cache(maxsize=1)
 def get_llm() -> OllamaClient:
     return OllamaClient(get_settings())
-
-
-def get_config() -> Settings:
-    return get_settings()

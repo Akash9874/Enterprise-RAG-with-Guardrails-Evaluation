@@ -24,7 +24,13 @@ class LLMClient(Protocol):
 class OllamaClient:
     def __init__(self, settings: Settings, client: Any | None = None) -> None:
         self._settings = settings
-        self._client = client if client is not None else ollama.Client(host=settings.ollama.host)
+        # Without an explicit timeout a hung generation blocks the request indefinitely,
+        # which is a real risk for multi-second CPU inference.
+        self._client = (
+            client
+            if client is not None
+            else ollama.Client(host=settings.ollama.host, timeout=settings.ollama.timeout_s)
+        )
 
     def generate(self, prompt: str, system: str | None = None) -> str:
         messages: list[dict[str, str]] = []
