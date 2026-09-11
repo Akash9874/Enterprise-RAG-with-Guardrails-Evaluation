@@ -49,7 +49,7 @@ document, `GET /health` reports per-dependency readiness, and CI is green.
 - Consumes: nothing
 - Produces: importable package `rag` with `rag.__version__: str`
 
-- [ ] **Step 1: Initialise the repository and pin Python**
+- [x] **Step 1: Initialise the repository and pin Python**
 
 ```bash
 git init
@@ -57,7 +57,7 @@ uv python install 3.12
 echo "3.12" > .python-version
 ```
 
-- [ ] **Step 2: Write `pyproject.toml`**
+- [x] **Step 2: Write `pyproject.toml`**
 
 ```toml
 [project]
@@ -126,7 +126,7 @@ markers = [
 addopts = "-q --strict-markers"
 ```
 
-- [ ] **Step 3: Write `.gitignore`**
+- [x] **Step 3: Write `.gitignore`**
 
 ```gitignore
 __pycache__/
@@ -143,7 +143,7 @@ eval/reports/*.json
 .env
 ```
 
-- [ ] **Step 4: Write the failing smoke test**
+- [x] **Step 4: Write the failing smoke test**
 
 ```python
 # tests/test_smoke.py
@@ -154,19 +154,19 @@ def test_package_imports_and_exposes_version() -> None:
     assert rag.__version__ != ""
 ```
 
-- [ ] **Step 5: Run it and watch it fail**
+- [x] **Step 5: Run it and watch it fail**
 
 Run: `uv run pytest tests/test_smoke.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'rag'`
 
-- [ ] **Step 6: Create the package**
+- [x] **Step 6: Create the package**
 
 ```python
 # src/rag/__init__.py
 __version__ = "0.1.0"
 ```
 
-- [ ] **Step 7: Sync and verify the test passes**
+- [x] **Step 7: Sync and verify the test passes**
 
 ```bash
 uv sync
@@ -174,14 +174,14 @@ uv run pytest tests/test_smoke.py -v
 ```
 Expected: PASS
 
-- [ ] **Step 8: Verify lint and types are clean**
+- [x] **Step 8: Verify lint and types are clean**
 
 ```bash
 uv run ruff check . && uv run ruff format --check . && uv run mypy src/
 ```
 Expected: no errors
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add pyproject.toml .python-version .gitignore src/rag/__init__.py tests/test_smoke.py uv.lock
@@ -204,7 +204,7 @@ git commit -m "chore: scaffold project with uv, ruff, mypy, pytest on Python 3.1
 These are the **only** types permitted to cross module boundaries. Later tasks import from here
 and nowhere else.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/unit/test_contracts.py
@@ -259,12 +259,12 @@ def test_rail_result_rejects_an_unknown_verdict() -> None:
         RailResult(rail="pii", tier="T0", verdict="maybe", latency_ms=1.0)  # type: ignore[arg-type]
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `uv run pytest tests/unit/test_contracts.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'rag.contracts'`
 
-- [ ] **Step 3: Implement the contracts**
+- [x] **Step 3: Implement the contracts**
 
 ```python
 # src/rag/contracts.py
@@ -358,12 +358,12 @@ class Answer(BaseModel):
     model_info: dict[str, str] = Field(default_factory=dict)
 ```
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest tests/unit/test_contracts.py -v`
 Expected: PASS (6 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rag/contracts.py tests/unit/test_contracts.py
@@ -387,7 +387,7 @@ git commit -m "feat: add shared data contracts with stable content-derived chunk
 Precedence is **env var overrides YAML overrides field default**. Never hardcode a `k`,
 threshold, or model name anywhere else in the codebase.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/unit/test_config.py
@@ -433,12 +433,12 @@ def test_settings_hash_is_stable_and_content_sensitive() -> None:
     assert c.config_hash() != a.config_hash()
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `uv run pytest tests/unit/test_config.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'rag.config'`
 
-- [ ] **Step 3: Implement the settings module**
+- [x] **Step 3: Implement the settings module**
 
 ```python
 # src/rag/config.py
@@ -558,7 +558,7 @@ def get_settings() -> Settings:
     return load_settings()
 ```
 
-- [ ] **Step 4: Write `config/settings.yaml` with the defaults made explicit**
+- [x] **Step 4: Write `config/settings.yaml` with the defaults made explicit**
 
 ```yaml
 # Effective defaults. Every value here should eventually be justified by a number
@@ -588,12 +588,12 @@ ollama:
   temperature: 0.0         # deterministic; required for reproducible eval
 ```
 
-- [ ] **Step 5: Run the tests and verify they pass**
+- [x] **Step 5: Run the tests and verify they pass**
 
 Run: `uv run pytest tests/unit/test_config.py -v`
 Expected: PASS (5 tests)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/rag/config.py config/settings.yaml tests/unit/test_config.py
@@ -613,7 +613,7 @@ git commit -m "feat: add layered settings with yaml and env overrides"
 - Produces: `QdrantStore(settings: Settings)` with `is_ready() -> bool` and
   `collection_exists() -> bool`
 
-- [ ] **Step 1: Write `docker-compose.yml`**
+- [x] **Step 1: Write `docker-compose.yml`**
 
 ```yaml
 services:
@@ -634,7 +634,7 @@ services:
       retries: 10
 ```
 
-- [ ] **Step 2: Write the failing unit test**
+- [x] **Step 2: Write the failing unit test**
 
 ```python
 # tests/unit/test_qdrant_store.py
@@ -670,12 +670,12 @@ def test_collection_exists_matches_the_configured_name() -> None:
     assert store.collection_exists() is True
 ```
 
-- [ ] **Step 3: Run it and watch it fail**
+- [x] **Step 3: Run it and watch it fail**
 
 Run: `uv run pytest tests/unit/test_qdrant_store.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'rag.index'`
 
-- [ ] **Step 4: Implement the store**
+- [x] **Step 4: Implement the store**
 
 ```python
 # src/rag/index/__init__.py
@@ -722,12 +722,12 @@ class QdrantStore:
         return any(c.name == self._settings.qdrant.collection for c in collections)
 ```
 
-- [ ] **Step 5: Run the unit tests and verify they pass**
+- [x] **Step 5: Run the unit tests and verify they pass**
 
 Run: `uv run pytest tests/unit/test_qdrant_store.py -v`
 Expected: PASS (3 tests)
 
-- [ ] **Step 6: Write the integration test**
+- [x] **Step 6: Write the integration test**
 
 ```python
 # tests/integration/test_qdrant_live.py
@@ -743,7 +743,7 @@ def test_live_qdrant_is_reachable() -> None:
     assert store.is_ready() is True
 ```
 
-- [ ] **Step 7: Start Qdrant and run the integration test**
+- [x] **Step 7: Start Qdrant and run the integration test**
 
 ```bash
 docker compose up -d qdrant
@@ -751,7 +751,7 @@ uv run pytest tests/integration/test_qdrant_live.py -v -m integration
 ```
 Expected: PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add docker-compose.yml src/rag/index/ tests/unit/test_qdrant_store.py tests/integration/
@@ -776,7 +776,7 @@ This is the mechanism that keeps the RAM budget (NFR-4). Models are constructed 
 `get`**, never at import. When residency exceeds `max_resident`, the least-recently-used model
 is dropped.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/unit/test_registry.py
@@ -838,12 +838,12 @@ def test_getting_an_unregistered_model_raises() -> None:
         registry.get("nope")
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `uv run pytest tests/unit/test_registry.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'rag.models'`
 
-- [ ] **Step 3: Implement the registry**
+- [x] **Step 3: Implement the registry**
 
 ```python
 # src/rag/models/__init__.py
@@ -904,12 +904,12 @@ class ModelRegistry:
             log.info("model_evicted", model=name)
 ```
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest tests/unit/test_registry.py -v`
 Expected: PASS (5 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rag/models/ tests/unit/test_registry.py
@@ -932,7 +932,7 @@ git commit -m "feat: add lazy model registry with lru eviction"
 `scripts/bootstrap_models.py` is Python rather than a shell script so it runs identically on
 Windows and Linux.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/unit/test_llm.py
@@ -987,12 +987,12 @@ def test_is_ready_is_true_when_the_configured_model_is_present() -> None:
     assert llm.is_ready() is True
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `uv run pytest tests/unit/test_llm.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'rag.models.llm'`
 
-- [ ] **Step 3: Implement the client**
+- [x] **Step 3: Implement the client**
 
 ```python
 # src/rag/models/llm.py
@@ -1045,12 +1045,12 @@ class OllamaClient:
         return self._settings.models.generator in names
 ```
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [x] **Step 4: Run the tests and verify they pass**
 
 Run: `uv run pytest tests/unit/test_llm.py -v`
 Expected: PASS (5 tests)
 
-- [ ] **Step 5: Write the bootstrap script**
+- [x] **Step 5: Write the bootstrap script**
 
 ```python
 # scripts/bootstrap_models.py
@@ -1100,7 +1100,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 6: Run the bootstrap and confirm the model is available**
+- [x] **Step 6: Run the bootstrap and confirm the model is available**
 
 ```bash
 uv run python scripts/bootstrap_models.py
@@ -1110,7 +1110,7 @@ Expected: `OK: pulled qwen2.5:3b-instruct-q4_K_M` (or "already present")
 > Ollama is not currently installed on this machine. Install it from
 > <https://ollama.com/download> before this step.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/rag/models/llm.py scripts/bootstrap_models.py tests/unit/test_llm.py
@@ -1134,7 +1134,7 @@ git commit -m "feat: add ollama client and model bootstrap script"
 Health returns **200 even when degraded** — a dependency being down is information, not a
 transport error. The `status` field carries the verdict.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/unit/test_health.py
@@ -1177,12 +1177,12 @@ def test_health_reports_the_package_version() -> None:
     assert _client(True, True).get("/health").json()["version"] == rag.__version__
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `uv run pytest tests/unit/test_health.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'rag.api'`
 
-- [ ] **Step 3: Implement dependency wiring**
+- [x] **Step 3: Implement dependency wiring**
 
 ```python
 # src/rag/api/__init__.py
@@ -1215,7 +1215,7 @@ def get_config() -> Settings:
     return get_settings()
 ```
 
-- [ ] **Step 4: Implement the health route**
+- [x] **Step 4: Implement the health route**
 
 ```python
 # src/rag/api/routes/__init__.py
@@ -1247,7 +1247,7 @@ def health(
     return {"status": status, "dependencies": dependencies, "version": rag.__version__}
 ```
 
-- [ ] **Step 5: Implement the app factory**
+- [x] **Step 5: Implement the app factory**
 
 ```python
 # src/rag/api/main.py
@@ -1272,12 +1272,12 @@ def create_app() -> FastAPI:
 app = create_app()
 ```
 
-- [ ] **Step 6: Run the tests and verify they pass**
+- [x] **Step 6: Run the tests and verify they pass**
 
 Run: `uv run pytest tests/unit/test_health.py -v`
 Expected: PASS (3 tests)
 
-- [ ] **Step 7: Start the server and check the endpoint by hand**
+- [x] **Step 7: Start the server and check the endpoint by hand**
 
 ```bash
 uv run uvicorn rag.api.main:app --reload
@@ -1285,7 +1285,7 @@ curl http://localhost:8000/health
 ```
 Expected: JSON with `status`, `dependencies`, `version`. `/docs` renders.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/rag/api/ tests/unit/test_health.py
@@ -1309,7 +1309,7 @@ This is the phase's point: prove the whole loop before building any real compone
 a hardcoded document; Phase 1 replaces it, Phase 2 replaces the prompt, Phase 3 adds rails. The
 route signature does not change.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/unit/test_query_skeleton.py
@@ -1370,12 +1370,12 @@ def test_query_passes_the_retrieved_context_into_the_prompt() -> None:
     assert "What is RRF?" in prompt
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [x] **Step 2: Run it and watch it fail**
 
 Run: `uv run pytest tests/unit/test_query_skeleton.py -v`
 Expected: FAIL — 404, because `/query` is not registered
 
-- [ ] **Step 3: Implement the skeleton route**
+- [x] **Step 3: Implement the skeleton route**
 
 ```python
 # src/rag/api/routes/query.py
@@ -1482,7 +1482,7 @@ def query(
     return Answer(text=text, citations=citations, retrieved=retrieved, stage_timings=timings)
 ```
 
-- [ ] **Step 4: Register the router**
+- [x] **Step 4: Register the router**
 
 In `src/rag/api/main.py`, change the import and add one line:
 
@@ -1495,12 +1495,12 @@ from rag.api.routes import health, query
     app.include_router(query.router)
 ```
 
-- [ ] **Step 5: Run the tests and verify they pass**
+- [x] **Step 5: Run the tests and verify they pass**
 
 Run: `uv run pytest tests/unit/test_query_skeleton.py -v`
 Expected: PASS (5 tests)
 
-- [ ] **Step 6: Prove the loop end-to-end against the real LLM**
+- [x] **Step 6: Prove the loop end-to-end against the real LLM**
 
 ```bash
 uv run uvicorn rag.api.main:app &
@@ -1511,7 +1511,7 @@ curl -s -X POST http://localhost:8000/query \
 Expected: a real generated answer citing `[1]`. **This is the Phase 0 exit criterion.**
 It will take 10–25 s on this hardware — that is the CPU constraint, not a bug.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/rag/api/routes/query.py src/rag/api/main.py tests/unit/test_query_skeleton.py
@@ -1533,7 +1533,7 @@ git commit -m "feat: add walking skeleton query endpoint proving the end-to-end 
 Integration tests are excluded from CI — they need live Qdrant and Ollama. Phase 1 adds a
 Qdrant service container once there is something to integrate.
 
-- [ ] **Step 1: Write the workflow**
+- [x] **Step 1: Write the workflow**
 
 ```yaml
 # .github/workflows/ci.yml
@@ -1574,14 +1574,14 @@ jobs:
         run: uv run pytest -m "not slow and not integration" --cov=rag --cov-report=term-missing
 ```
 
-- [ ] **Step 2: Run the same checks locally first**
+- [x] **Step 2: Run the same checks locally first**
 
 ```bash
 uv run ruff check . && uv run ruff format --check . && uv run mypy src/ && uv run pytest -m "not slow and not integration"
 ```
 Expected: all green. Fix anything that fails before pushing.
 
-- [ ] **Step 3: Commit and push**
+- [x] **Step 3: Commit and push**
 
 ```bash
 git add .github/workflows/ci.yml
@@ -1589,7 +1589,7 @@ git commit -m "ci: add lint, type, and test pipeline"
 git push -u origin main
 ```
 
-- [ ] **Step 4: Confirm the run is green**
+- [x] **Step 4: Confirm the run is green**
 
 Run: `gh run watch`
 Expected: all steps pass.
@@ -1598,11 +1598,11 @@ Expected: all steps pass.
 
 ## Phase 0 exit checklist
 
-- [ ] `uv run pytest -m "not slow and not integration"` passes — 27 tests
-- [ ] `uv run mypy src/` reports no errors
-- [ ] `uv run ruff check .` and `ruff format --check .` are clean
-- [ ] `docker compose up -d qdrant` then `GET /health` returns `{"status": "ok", ...}`
-- [ ] `POST /query` returns a real LLM-generated answer with a citation
-- [ ] CI is green on `main`
+- [x] `uv run pytest -m "not slow and not integration"` passes — 42 tests
+- [x] `uv run mypy src/` reports no errors
+- [x] `uv run ruff check .` and `ruff format --check .` are clean
+- [x] `docker compose up -d qdrant` then `GET /health` returns `{"status": "ok", ...}`
+- [x] `POST /query` returns a real LLM-generated answer with a citation
+- [x] CI is green on `main`
 
 **When all boxes are ticked, proceed to [Phase 1](phase-1-retrieval-eval.md).**
