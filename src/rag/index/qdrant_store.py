@@ -89,3 +89,40 @@ class QdrantStore:
             return 0
         result = self._client.count(collection_name=self._settings.qdrant.collection, exact=True)
         return int(result.count)
+
+    def hybrid_search(
+        self,
+        dense_vector: list[float],
+        sparse_indices: list[int],
+        sparse_values: list[float],
+        limit: int,
+        exclude_quarantined: bool = True,
+    ) -> list[Any]:
+        query_filter = None
+        if exclude_quarantined:
+            query_filter = models.Filter(
+                must_not=[
+                    models.FieldCondition(key="quarantined", match=models.MatchValue(value=True))
+                ]
+            )
+
+        response = self._client.query_points(
+            collection_name=self._settings.qdrant.collection,
+            prefetch=[
+                models.Prefetch(
+                    query=dense_vector,
+                    using=DENSE_VECTOR,
+                    limit=self._settings.retrieval.k_dense,
+                ),
+                models.Prefetch(
+                    query=models.SparseVector(indices=sparse_indices, values=sparse_values),
+                    using=SPARSE_VECTOR,
+                    limit=self._settings.retrieval.k_sparse,
+                ),
+            ],
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            limit=limit,
+            query_filter=query_filter,
+            with_payload=True,
+        )
+        return list(response.points)
