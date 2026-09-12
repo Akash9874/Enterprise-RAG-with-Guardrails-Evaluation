@@ -4,12 +4,12 @@ A Retrieval-Augmented Generation service that answers questions about a code + d
 corpus, **runs entirely on local CPU at zero marginal cost**, and treats safety and measurement
 as engineering problems rather than afterthoughts.
 
-> **Status: Phases 0–2 of 5 complete.** The system indexes its own repository, retrieves from
-> it with hybrid dense + sparse search, and answers with citations that are checked against the
-> chunks actually supplied to the model. Retrieval is measured by a zero-LLM eval harness. The
-> guardrail pipeline is specified and planned, not yet built — so out-of-scope questions are
-> **not** yet refused. Every number below came from this project's own harness, including the
-> ones that are unflattering.
+> **Status: Phases 0–3 of 5 complete.** The system indexes its own repository, retrieves from
+> it with hybrid dense + sparse search, answers with citations checked against the chunks
+> actually supplied to the model, and wraps the whole request in a four-family guardrail
+> pipeline with an inspectable decision trace. Retrieval, guardrails and adversarial robustness
+> are all measured by the project's own harness. Every number below came from that harness,
+> including the ones that are unflattering — of which there are several.
 
 ---
 
@@ -51,9 +51,11 @@ here. Each rejection is recorded with its reasoning in
 
 ```
 GET  /health   →  {"status":"ok","dependencies":{"qdrant":true,"ollama":true}}
-POST /query    →  a cited answer from a local Qwen2.5-3B, streaming optional
-uv run rag ingest --source .       →  80 files → 567 chunks in 4.4 s
+POST /query    →  a cited answer + guardrail trace, streaming optional
+uv run rag ingest --source .       →  80 files → 567 chunks in 4.4 s, injection-scanned
 uv run rag eval retrieval          →  Tier A metrics in 1.3 s, no LLM
+uv run rag eval adversarial        →  attack-success + false-refusal rates
+uv run rag bench                   →  asserts guardrail overhead p50 ≤ 300 ms
 ```
 
 Ask it about itself, and it answers from its own source:
@@ -67,17 +69,25 @@ Ask it about itself, and it answers from its own source:
 
 | | |
 |---|---|
-| Retrieval (28 golden queries, fusion only) | NDCG@5 **0.752** · Recall@5 **0.786** · MRR **0.671** · 1.3 s total |
+| Retrieval (28 golden queries, fusion only) | NDCG@5 **0.716** · Recall@5 **0.750** · Hit@5 **0.821** · 1.3 s total |
 | Citations resolving to a real chunk | **28/28** |
-| Fabricated markers stripped | **0** over 28 queries — the machinery is proven by unit tests, not by traffic |
 | Answers citing nothing at all | **12/28 (43%)** — flagged `ungrounded`, not hidden |
+| **Attack success rate** (34 adversarial cases) | **22.7%** — injection 0/8, PII 0/4, out-of-scope 1/6, unanswerable 4/4 |
+| **False refusal rate** (12 benign controls) | **0.0%** |
+| Guardrail overhead (NFR-2 ≤ 300 ms) | **184 ms p50**, 220 ms p95 — PASS |
+| Resident memory (NFR-4 ≤ 6 GB) | **≈ 3.7 GB** — PASS |
 | End-to-end latency | p50 **34.6 s** · p95 **68.5 s** — **misses the ≤ 20 s target** |
-| Tests | 178, `mypy --strict` clean, 98% coverage on `generation/`, `retrieval/`, `eval/` |
+| Tests | 343, `mypy --strict` clean, 97% coverage on `guardrails/`, `retrieval/`, `eval/` |
 
-Two of those numbers are bad, and they are printed at the same size as the good ones on purpose.
-The 43% uncited rate is a real gap that the Phase 3 groundedness rail and the Phase 4 Tier B
-metric exist to close. The latency misses NFR-1 and that will be re-measured, not re-worded,
-when `rag bench` lands.
+Several of those numbers are unflattering and are printed at the same size as the good ones on
+purpose. **22.7% of adversarial cases get through** — almost all of them the `unanswerable`
+family, where a plausible question the corpus cannot answer receives a hedged answer rather than
+a refusal. That is a configured trade, and its cost is measured rather than guessed: switching
+groundedness from `hedge` to `refuse` takes attack success to ~9% and false refusals to ~20%.
+Hedging was chosen because a false refusal is the failure a reviewer actually experiences.
+
+The 43% uncited rate and the end-to-end latency both miss their targets and are tracked, not
+reworded.
 
 ---
 
@@ -116,7 +126,7 @@ uv run ruff check . && uv run mypy src/
 | **0** | Foundation + walking skeleton | ✅ **Complete** — verified against live Qdrant and Ollama |
 | **1** | Ingestion (tree-sitter + markdown), hybrid retrieval, **Tier A eval harness** | ✅ **Complete** — metrics measured, reranker disabled on the evidence (ADR-003) |
 | **2** | Generation with enforced citations, streaming | ✅ **Complete** — citations verified against the live corpus |
-| **3** | Tiered guardrail pipeline + adversarial suite | 📋 Roadmap |
+| **3** | Tiered guardrail pipeline + adversarial suite | ✅ **Complete** — 4 rail families, 34 adversarial cases, both rates reported |
 | **4** | Eval depth, HTML report, CI gates, demo UI | 📋 Roadmap |
 
 **The evaluation harness lands in Phase 1, not at the end.** Retrieval cannot be tuned without
@@ -155,7 +165,7 @@ query → GUARDRAILS (T0 regex · T0 PII · T1 injection · T1 topical)
 ## Documentation
 
 - **[Docs/prd.md](Docs/prd.md)** — requirements, constraints, data contracts, NFRs
-- **[Docs/decisions.md](Docs/decisions.md)** — 16 ADRs, including what was rejected and why — and the three occasions a confident design assumption lost to a measurement
+- **[Docs/decisions.md](Docs/decisions.md)** — 22 ADRs, including what was rejected and why — and the several occasions a confident design assumption lost to a measurement
 - **[Docs/plans/](Docs/plans/)** — phased implementation plans
 - **[CLAUDE.md](CLAUDE.md)** — architecture invariants and working practice
 

@@ -94,18 +94,26 @@ document traces back to one of them.
 
 ### 4.1 Resident memory budget
 
-| Component | Budget |
-|---|---|
-| Ollama + Qwen2.5-3B-Instruct Q4_K_M | 2.00 GB |
-| torch / transformers runtime | 0.80 GB |
-| HHEM-2.1-Open (groundedness) | 0.40 GB |
-| deberta-v3 injection classifier | 0.40 GB |
-| Qdrant container | 0.30 GB |
-| Presidio + spaCy `en_core_web_sm` | 0.30 GB |
-| FastAPI + application | 0.30 GB |
-| bge-small-en-v1.5 embedder | 0.15 GB |
-| ms-marco-MiniLM-L-6-v2 reranker | 0.10 GB |
-| **Total** | **≈ 4.75 GB** |
+Estimated at design time, then **measured on 2026-09-12** once every model had been run
+(ADR-018). The measured column is the increment each component adds when loaded in sequence
+into one process, so they share a single torch runtime.
+
+| Component | Budgeted | Measured | Note |
+|---|---|---|---|
+| Ollama + Qwen2.5-3B-Instruct Q4_K_M | 2.00 GB | ~2.00 GB | separate process |
+| torch / transformers runtime + app | 1.10 GB | 0.04 GB | counted inside the models below |
+| bge-small-en-v1.5 embedder | 0.15 GB | 0.47 GB | includes the torch runtime it loads first |
+| Presidio + spaCy `en_core_web_sm` | 0.30 GB | 0.09 GB | **0.61 GB if `en_core_web_sm` is not pinned** |
+| deberta-v3 injection classifier | 0.40 GB | 0.45 GB | |
+| HHEM-2.1-Open (groundedness) | 0.40 GB | 0.38 GB | |
+| Qdrant container | 0.30 GB | ~0.30 GB | container |
+| ms-marco-MiniLM-L-6-v2 reranker | 0.10 GB | — | disabled by default (ADR-003) |
+| **Total** | **≈ 4.75 GB** | **≈ 3.72 GB** | 1.42 GB in-process + Ollama + Qdrant |
+
+**NFR-4 passes with room to spare.** The one trap: Presidio's default `AnalyzerEngine()` loads
+`en_core_web_lg` (382 MB) rather than `sm`, which costs 1.09 GB resident and 102 ms per call
+against 0.48 GB and 7 ms for the pinned configuration. Pinning the model and scoping the entity
+list are both load-bearing and both asserted in tests.
 
 Encoder models are **lazily loaded** through a registry with LRU eviction, so steady-state
 residency is typically lower. Exceeding 6 GB is a defect (NFR-4).
@@ -258,11 +266,11 @@ The pipeline is the project's headline feature. Implementation detail lives in
 | Rail | Tier | Model / method | Budget | Action on trip |
 |---|---|---|---|---|
 | Input heuristics | T0 | Regex patterns, denylist, length / encoding checks | < 1 ms | block |
-| PII (input) | T0 | Presidio + spaCy | ~30 ms | redact or block |
-| Prompt injection | T1 | `deberta-v3-base-prompt-injection-v2` | ~40 ms | block |
+| PII (input) | T0 | Presidio + spaCy | ~30 ms (**measured 7 ms**) | redact or block |
+| Prompt injection | T1 | `deberta-v3-base-prompt-injection-v2` | ~40 ms (**measured 120 ms**) | block |
 | Topicality | T1 | Cosine distance to corpus embedding centroid | ~10 ms | refuse (out of scope) |
 | PII leak (output) | T0 | Presidio re-scan of generated text | ~30 ms | redact |
-| Groundedness | T2 | HHEM-2.1-Open, per answer-sentence vs cited chunks | ~150 ms | hedge, repair, or refuse |
+| Groundedness | T2 | HHEM-2.1-Open, per answer-sentence vs **each retrieved chunk, max** (ADR-021) | ~150 ms (**measured 197 ms**) | hedge, repair, or refuse |
 | Groundedness verify | T3 | LLM self-check — escalation band only | ~2–4 s | final verdict |
 
 The topicality rail reuses the retrieval embedder, so it adds no model residency.

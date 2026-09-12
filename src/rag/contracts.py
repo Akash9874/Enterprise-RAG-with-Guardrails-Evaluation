@@ -41,6 +41,9 @@ class Chunk(BaseModel):
     token_count: int = 0
     pii_findings: list[PIIFinding] = Field(default_factory=list)
     quarantined: bool = False
+    # Injection probability recorded at ingest (FR-I7). Kept even when below the
+    # quarantine threshold, so the decision is reviewable rather than just a boolean.
+    injection_score: float | None = None
     content_hash: str = ""
 
 
@@ -69,6 +72,16 @@ class RailResult(BaseModel):
     threshold_band: tuple[float, float] | None = None
     latency_ms: float = 0.0
     evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class RailContext(BaseModel):
+    """What a rail is allowed to see. Rails never mutate it; they return a RailResult."""
+
+    request_id: str
+    query: str
+    answer: str | None = None
+    retrieved: list[Retrieved] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
 
 
 class GuardrailTrace(BaseModel):

@@ -396,3 +396,277 @@ working as specified — it strips fabricated markers, and over these 28 queries
 Closing that is Phase 3 and 4 work: the T2 groundedness rail acts on the flag, and Tier B's
 citation-recall metric (FR-E2) turns it into a gated number. Phase 2 flags it honestly and
 does not pretend to solve it.
+
+---
+
+## ADR-017 — Pin `transformers < 5` to keep HHEM-2.1-Open working
+
+**Context.** ADR-005 chose HHEM as the groundedness model, serving as both the T2 rail and the
+Tier B eval metric. On first load under the resolved stack it failed outright:
+
+```
+AttributeError: 'HHEMv2ForSequenceClassification' object has no attribute
+'all_tied_weights_keys'
+```
+
+HHEM ships its own modelling code via `trust_remote_code`, written against the transformers 4.x
+API. `uv` had resolved transformers **5.17.0**, whose internals it does not match. The load also
+reported `t5.transformer.encoder.embed_tokens.weight MISSING`, so the model was not merely noisy
+— it was not loading its weights.
+
+**Decision.** Pin `transformers < 5`. The resolver settles on transformers 4.57.6 with
+sentence-transformers 5.7.0 and torch 2.14.0.
+
+**Verified, not assumed.** HHEM was re-run against the five premise/hypothesis pairs published on
+Vectara's model card, and all five land on the expected side:
+
+| premise → hypothesis | score | expected |
+|---|---|---|
+| capital of France is Berlin → is Paris | 0.011 | low |
+| in California → in United States | 0.647 | high |
+| in United States → in California | 0.129 | low |
+| person on a horse jumps… → person outdoors on a horse | 0.897 | high |
+| boy on skateboard on a bridge → skates down the sidewalk | 0.185 | low |
+
+The full test suite and `rag eval retrieval` were re-run after the downgrade; nothing regressed.
+
+**Rejected — swap HHEM for a generic NLI cross-encoder** (`nli-deberta-v3-base` or
+`DeBERTa-v3-base-mnli-fever-anli`, both the same size class, both plain
+`AutoModelForSequenceClassification` with no remote code and no version pin). It would have
+avoided the pin, but it discards the property ADR-005 selected HHEM *for*: it is purpose-built
+for exactly this premise/hypothesis judgement, and it doubles as the eval metric so that the
+thing enforced and the thing measured are definitionally the same. A version pin is a cheaper
+price than losing that.
+
+**Consequence.** The project is held one major version back on transformers until Vectara
+updates the remote code. Recorded as a known constraint rather than discovered later by whoever
+next runs `uv lock --upgrade`.
+
+---
+
+## ADR-018 — The Phase 3 model budget, measured; PRD §4.1 was optimistic
+
+**Context.** PRD §4.1 budgeted the guardrail models from published parameter counts, before any
+of them had been run on this machine.
+
+**Measured 2026-09-12** on the reference CPU. Loaded in sequence into one process, so the
+increments share a single torch runtime — which is why they are each smaller than the same model
+measured alone:
+
+| Step | resident | increment | per call |
+|---|---|---|---|
+| baseline + imports | 0.04 GB | — | — |
+| + `bge-small` embedder | 0.51 GB | +0.47 | — |
+| + Presidio (`en_core_web_sm`) | 0.60 GB | +0.09 | 7 ms |
+| + deberta injection | 1.04 GB | +0.45 | 120 ms warm, 306 ms cold |
+| + HHEM groundedness | **1.42 GB** | +0.38 | 197 ms warm, 4.2 s cold |
+
+**NFR-4 passes with room to spare**: 1.42 GB in-process, plus Ollama (~2.0 GB, separate process)
+and Qdrant (~0.3 GB, container) for roughly **3.7 GB against a 6 GB ceiling**.
+
+**Two estimates in PRD §4.1 were wrong, in opposite directions.**
+
+1. **Presidio would have blown its 0.30 GB line by 3.6×.** The default `AnalyzerEngine()`
+   silently downloads and loads `en_core_web_lg` — 382 MB on disk, **1.09 GB resident, 102 ms
+   per call**. Pinning `en_core_web_sm` *and* scoping the entity list to the five types the
+   policy names brings that to **0.48 GB and 7 ms** — a 15× latency reduction. Both are
+   load-bearing and both are asserted in tests, because the expensive path is the default one
+   and nothing about it looks wrong.
+2. **The injection classifier is 3× its latency budget.** PRD §7.4 estimated ~40 ms; it measures
+   120 ms warm. The estimate appears to have been taken from parameter count rather than a run.
+
+**Consequence.** NFR-2 (guardrail overhead p50 ≤ 300 ms) still passes at **184 ms p50, 220 ms
+p95** across the 28 golden queries, because the T0 rails cost microseconds and short-circuit a
+large share of hostile traffic before the classifier runs. The tiering is not a nicety here — it
+is the only reason a 120 ms classifier fits inside a 300 ms budget at all.
+
+**PRD §4.1 is updated to the measured figures rather than left as the original estimates.**
+
+---
+
+## ADR-019 — Topicality thresholds, measured; this is what ADR-015 deferred here
+
+**Context.** ADR-015 established that the RRF fused score cannot detect an out-of-scope question
+— in-corpus and out-of-corpus scores overlap completely — and reassigned the job to this rail.
+That left a promise to keep: show that cosine-to-centroid actually does better.
+
+**Measured 2026-09-12** — 28 hand-authored golden queries against 12 blatantly out-of-corpus
+controls, cosine similarity to the mean of all 567 indexed dense vectors:
+
+| | n | min | median | max |
+|---|---|---|---|---|
+| in-corpus | 28 | 0.564 | 0.687 | 0.779 |
+| out-of-corpus | 12 | 0.422 | 0.497 | 0.644 |
+
+**It separates far better than RRF, but not perfectly.** The lowest in-corpus query (0.564) sits
+below the highest out-of-corpus one (0.644), so there is no threshold that is simultaneously
+perfect in both directions. That overlap is the honest finding; the thresholds are a chosen
+trade, not a clean cut.
+
+Threshold sweep:
+
+| t_block | in-corpus wrongly refused | out-of-corpus refused |
+|---|---|---|
+| 0.50 | 0/28 | 7/12 (58%) |
+| 0.52 | 0/28 | 9/12 (75%) |
+| **0.55** | **0/28** | **10/12 (83%)** |
+| 0.57 | 1/28 (3.6%) | 11/12 (92%) |
+
+| t_pass | in-corpus passing cleanly | out-of-corpus reaching "pass" |
+|---|---|---|
+| 0.60 | 27/28 | 1/12 |
+| **0.65** | **25/28 (89%)** | **0/12** |
+| 0.70 | 12/28 (43%) | 0/12 |
+
+**Decision.** `t_block = 0.55`, `t_pass = 0.65`. 0.55 is the last point before false refusals
+begin — 0.57 buys one extra catch at the cost of refusing a real question, and on a system whose
+false-refusal rate is a headline metric that is the wrong side of the trade. 0.65 is the lowest
+value at which nothing out-of-scope reaches a clean pass.
+
+**Consequence.** The five queries landing between the thresholds hedge rather than resolve. That
+is the band doing its job. Note this rail does **not** escalate to T3 — FR-GR4 reserves that for
+output groundedness — so a hedge here is final, and costs no latency.
+
+**Against ADR-015's gap:** out-of-scope refusal now works, measured at 5/6 in the adversarial
+suite. The gap that ADR recorded is closed, and the residual 1/6 is reported rather than hidden.
+
+---
+
+## ADR-020 — PII threshold, and the rail-interaction bug the adversarial suite found
+
+**Context.** The first adversarial run scored the PII family at 50% attack success. Both failures
+had causes worth recording, and one of them was a genuine design error.
+
+### 1. `t_block = 0.5` silently missed every phone number
+
+Presidio's confidence is per-recogniser, not a uniform scale. Measured on this machine:
+
+| input | entity | score |
+|---|---|---|
+| `bob.smith@example.com` | EMAIL_ADDRESS | 1.00 |
+| `4111111111111111` | CREDIT_CARD | 1.00 |
+| `+1-415-555-0132` | PHONE_NUMBER | **0.40** |
+| `SSN 123-45-6789` | *(nothing detected)* | — |
+
+0.40 is Presidio's "pattern matched, not independently validated" level, and the guessed 0.50 sat
+just above it. Lowering to **0.40** costs nothing measurable: across the 28 real golden queries,
+**0/28 produce any detection at any threshold down to 0.30**, so no false-positive budget is
+being spent.
+
+**Not fixed, and stated plainly:** `US_SSN` is in the policy's entity list but Presidio's
+recogniser did not fire on a bare `123-45-6789` — it wants surrounding context. The entity stays
+configured, but this rail must not be described as covering SSNs on the strength of the config.
+
+### 2. Redaction output tripped the next rail — rails were not independent
+
+The second failure was the interesting one. The PII rail redacts before the injection classifier
+runs, and the classifier then scored the *redacted* text:
+
+| text handed to the injection classifier | injection probability |
+|---|---|
+| `My email is bob.smith@example.com - which file handles ingestion?` | **0.0007** |
+| `My email is <EMAIL_ADDRESS> - which file handles ingestion?` | **0.9350** |
+
+**Redacting a benign query manufactured an attack out of nothing.** A user who mentions their own
+email while asking a real question got blocked — and the benign controls, all PII-free, could not
+see it.
+
+Placeholder-shopping was tried and abandoned: `[EMAIL_ADDRESS]` scores 0.171, `{EMAIL_ADDRESS}`
+0.359, `[redacted EMAIL_ADDRESS]` 0.996 and `EMAIL_ADDRESS_REDACTED` 1.000, while
+`<PHONE_NUMBER>` in the same sentence position scores 0.0003. The behaviour is erratic enough
+that no placeholder can be called safe on this evidence.
+
+**Decision — the fix is architectural, not cosmetic.** The pipeline no longer feeds one rail's
+redaction to the next. A redaction changes what the *caller* receives; every rail inspects the
+original text. This is what the rail contract already required — rule 5, "no rail may depend on
+another rail having run" — so the bug was a violation of the existing design rather than a gap in
+it. Chaining rail outputs makes each rail's input a function of every rail before it, which is
+exactly how a benign query becomes an attack.
+
+**Suite change.** Two PII-bearing *benign* controls were added, because the original controls
+were all PII-free and structurally could not catch this. A suite that cannot see a bug is as much
+the finding as the bug.
+
+**Result.** PII attack success 50% → **0%**, with false refusals still 0/12.
+
+---
+
+## ADR-021 — Groundedness must score per chunk and take the max; HHEM's 512-token window
+
+**Context.** With groundedness scoring each sentence against the concatenated text of the chunks
+it cited — the definition in `eval/CLAUDE.md` — the rail produced **no usable signal at all**:
+
+| | scores |
+|---|---|
+| answerable questions (n=10) | 0.000 0.000 0.000 0.000 0.002 0.138 0.140 0.184 0.343 0.482 |
+| unanswerable questions (n=4) | 0.000 0.000 0.000 0.000 |
+
+A correct, cited answer and a confabulated answer about a non-existent Redis cache both scored
+0.000. No threshold separates those distributions, and a rail configured on them would have been
+decorative — the exact failure this project was built to avoid.
+
+**Two causes, both measured.**
+
+1. **Silent truncation.** HHEM's window is 512 tokens; a concatenated premise reached 1650 and
+   transformers warned it would be truncated. The support for the claim was in the part cut off.
+   The same sentence scored **0.184** against a concatenated premise and **0.969** scored against
+   chunks individually.
+2. **The cited chunk is the wrong premise for this question.** Phase 2 measured that 43% of
+   answers carry no citation at all (ADR-016); under the cited-chunk definition every one of
+   those scores 0 regardless of whether it was actually grounded.
+
+**Decision.** Score each sentence against each retrieved chunk separately and take the **max** —
+nothing is concatenated, so nothing is truncated, and a claim counts as grounded if *any*
+retrieved passage supports it.
+
+| | scores under per-chunk max |
+|---|---|
+| answerable | 0.075 0.109 0.437 0.509 0.527 0.616 0.876 0.900 0.940 0.952 |
+| unanswerable | 0.077 0.127 0.148 0.455 |
+
+Still overlapping — this is a hedging signal, not an oracle — but there is now a real difference
+between the distributions where before there was none.
+
+**Deliberate divergence from `eval/CLAUDE.md`.** That file defines groundedness against *cited*
+chunks. The rail now asks a narrower question — *is this answer hallucinated?* — for which any
+retrieved passage is valid evidence. Whether the answer cited the *right* chunk is citation
+precision, a different metric, and conflating the two is what destroyed the signal. Tier B keeps
+the cited-chunk definition; the rail and the metric now differ on purpose, and that difference is
+recorded here rather than left for someone to trip over.
+
+**Also measured: strip citation markers before scoring.** Leaving `[1]` in the hypothesis costs
+~0.10–0.12 on every supported sentence (0.944→0.846, 0.970→0.849, 0.965→0.869) while leaving a
+contradicted one unchanged (0.507→0.511). The marker is not part of the claim, and keeping it
+compresses precisely the separation the rail depends on.
+
+---
+
+## ADR-022 — A rail's trip verdict is declared in policy, never hardcoded
+
+**Context.** The first full-path adversarial run — input rails, retrieval, generation, output
+rails — returned a **91.7% false refusal rate: 11 of 12 benign controls refused**, every one by
+the groundedness rail. Attack success would have looked excellent. The suite could only say so
+because it has benign controls.
+
+**Cause.** The groundedness rail returned a hardcoded `refuse` when the score fell below
+`t_block`, while `config/guardrails.yaml` declared `action: hedge` for it. The policy field was
+being ignored, so FR-GR3 ("policy is declarative … per-rail `action`") was not actually
+implemented, and FR-GR5 ("quality rails fail open with a hedge") was contradicted in code.
+
+The two defects compounded: badly calibrated thresholds (ADR-021) pushed most real answers below
+`t_block`, and the hardcoded verdict turned every one of those into a denial rather than a
+warning.
+
+**Decision.** Every rail's trip verdict comes from `policy.trip_verdict`. `allow` maps to `pass`,
+so a policy can neutralise a rail without disabling it — the rail still runs and still reports its
+score to the trace, which is the difference between "we decided this is fine" and "we stopped
+looking".
+
+**Consequence.** Groundedness now hedges: the answer is returned with a warning that it may not be
+fully supported, rather than withheld. Refusing remains available to anyone who sets
+`action: refuse`, which is the point of having the field.
+
+**The general lesson, recorded because it generalises.** A guardrail's failure mode is not only
+"lets an attack through" — it is equally "refuses everything and reports a perfect attack-success
+rate". Only the benign half of the suite distinguishes those, and this run is the concrete
+demonstration that the benign half earns its place.

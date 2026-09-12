@@ -34,3 +34,41 @@ def test_collection_exists_is_false_when_absent() -> None:
     client.get_collections.return_value.collections[0].name = "something_else"
     store = QdrantStore(Settings(), client=client)
     assert store.collection_exists() is False
+
+
+def _point(vector: list[float]) -> MagicMock:
+    point = MagicMock()
+    point.vector = {"dense": vector}
+    return point
+
+
+def test_dense_centroid_averages_the_indexed_vectors() -> None:
+    """The topicality rail compares a query against this (ADR-015)."""
+    client = MagicMock()
+    client.get_collections.return_value = MagicMock(collections=[MagicMock()])
+    client.get_collections.return_value.collections[0].name = Settings().qdrant.collection
+    client.scroll.side_effect = [
+        ([_point([1.0, 0.0]), _point([0.0, 1.0])], None),
+    ]
+    store = QdrantStore(Settings(), client=client)
+    assert store.dense_centroid() == [0.5, 0.5]
+
+
+def test_dense_centroid_pages_through_every_point() -> None:
+    """A single scroll page would silently compute the centroid of the first batch only."""
+    client = MagicMock()
+    client.get_collections.return_value = MagicMock(collections=[MagicMock()])
+    client.get_collections.return_value.collections[0].name = Settings().qdrant.collection
+    client.scroll.side_effect = [
+        ([_point([1.0, 0.0])], "next-page"),
+        ([_point([0.0, 1.0])], None),
+    ]
+    store = QdrantStore(Settings(), client=client)
+    assert store.dense_centroid() == [0.5, 0.5]
+    assert client.scroll.call_count == 2
+
+
+def test_dense_centroid_of_an_absent_collection_is_none() -> None:
+    client = MagicMock()
+    client.get_collections.return_value = MagicMock(collections=[])
+    assert QdrantStore(Settings(), client=client).dense_centroid() is None

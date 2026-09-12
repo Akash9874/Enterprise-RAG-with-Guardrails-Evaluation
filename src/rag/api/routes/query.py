@@ -14,9 +14,9 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
-from rag.api.deps import get_answerer
+from rag.api.deps import get_guarded_answerer
 from rag.contracts import Answer
-from rag.generation.answerer import Answerer
+from rag.guardrails.guarded import GuardedAnswerer
 
 router = APIRouter()
 
@@ -36,7 +36,7 @@ class QueryRequest(BaseModel):
         return value
 
 
-def _sse(answerer: Answerer, request: QueryRequest) -> Iterator[str]:
+def _sse(answerer: GuardedAnswerer, request: QueryRequest) -> Iterator[str]:
     """Token events, then one terminal event carrying the enforced answer.
 
     Citation enforcement needs the completed text, so the terminal event — not the token
@@ -55,8 +55,14 @@ def _sse(answerer: Answerer, request: QueryRequest) -> Iterator[str]:
 @router.post("/query", response_model=Answer)
 def query(
     request: QueryRequest,
-    answerer: Annotated[Answerer, Depends(get_answerer)],
+    answerer: Annotated[GuardedAnswerer, Depends(get_guarded_answerer)],
 ) -> Answer | StreamingResponse:
     if request.stream:
         return StreamingResponse(_sse(answerer, request), media_type="text/event-stream")
-    return answerer.answer(request.query, top_k=request.top_k, rerank=request.rerank)
+
+    answer = answerer.answer(request.query, top_k=request.top_k, rerank=request.rerank)
+    if not request.include_trace:
+        # The trace is verbose and carries rail evidence — matched spans, unsupported
+        # sentences. Opt-in keeps the default response small and the evidence private.
+        answer = answer.model_copy(update={"trace": None})
+    return answer
