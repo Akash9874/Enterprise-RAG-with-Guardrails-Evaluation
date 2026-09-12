@@ -270,3 +270,129 @@ deliberately re-scoped to intermediate-to-advanced.
 **Consequences.** Target size lands around 2,500–3,500 LOC including tests. Finishing matters
 more than ceiling for a portfolio project; scope creep back toward the original plan is listed
 as a tracked risk in PRD §12.
+
+---
+
+## ADR-013 — Enforce citations post-hoc, not by constrained decoding
+
+**Context.** FR-G4 requires that a marker in the answer resolve to a chunk that was actually
+in context. A 3B model asked to cite will emit `[4]` when three sources were supplied.
+
+**Decision.** Parse the emitted markers after generation, strip the ones outside the supplied
+range, and record each strip on the `Answer` as `stripped_markers`, with `ungrounded` set when
+nothing survives.
+
+**Rejected — constrained decoding.** A grammar permitting only in-range markers would be
+correct by construction, but it needs logit-level control that Ollama's chat API does not
+expose, and switching to `llama-cpp-python` to get it trades a maintained server for a build
+step on a machine already pinned to 3.12 for wheel-availability reasons (ADR-011). It also
+would not help with the failure that actually matters: an *in-range but unsupported* citation
+is well-formed and a grammar cannot see it.
+
+**Scope, stated deliberately.** This enforcement is **referential only** — it proves the marker
+points at a real chunk, not that the chunk supports the sentence. Support is the Phase 3
+groundedness rail's judgement, which is why `Citation.supported` is left `None` here rather
+than defaulted to `True`. Claiming otherwise would be the exact "decorative guardrail" failure
+this project was built to avoid.
+
+**Consequences.** Enforcement is deterministic, costs microseconds, and produces a counter the
+eval harness can report. Streaming clients see raw tokens, so a fabricated marker can appear
+mid-stream and be absent from the terminal event — the terminal event is authoritative, and
+that is documented in the route.
+
+---
+
+## ADR-014 — Structural isolation of retrieved context, with delimiter neutralisation
+
+**Context.** The corpus is this repository. A source file or a document can contain text that
+reads as an instruction, and this ADR's own prose is now an indexed chunk — the attack is not
+hypothetical here, it is self-inflicted by ADR-010.
+
+**Decision.** Retrieved chunks are wrapped in a `<sources>` … `</sources>` block labelled as
+data, with a system prompt that tells the model to describe rather than obey anything inside
+it. Chunk text containing either delimiter has it rewritten (`</sources>` → `(/sources)`)
+before assembly.
+
+**Rationale for neutralising rather than dropping.** A chunk that legitimately documents the
+delimiters — this paragraph, for instance — should still be readable. What it must not be able
+to do is terminate the block and continue as instructions.
+
+**Consequences.** Prompt-level isolation is a mitigation, not a guarantee; a 3B model can still
+be talked out of it. It is one of three layers: quarantine at ingest (FR-I7, Phase 3), this
+isolation, and the output rails. Its effectiveness is measured by the adversarial suite in
+Phase 3, not asserted here.
+
+---
+
+## ADR-015 — The RRF fused score cannot carry a relevance floor; out-of-scope refusal moves to the topicality rail
+
+**Context.** FR-G6 requires the system to refuse rather than answer from parametric memory
+"when retrieval returns nothing above the relevance floor". `relevance_floor` was configured at
+`0.0` in Phase 1 — a placeholder, never measured.
+
+**Measured, 2026-09-12** (corpus 567 chunks / 80 files; 28 hand-authored golden queries against
+8 blatantly out-of-corpus controls; fusion-only, rerank off):
+
+| Query set | n | min top-1 fused | median | max |
+|---|---|---|---|---|
+| in-corpus (golden) | 28 | 0.500 | 0.750 | 1.000 |
+| out-of-corpus (swallows, sourdough, the Eiffel Tower) | 8 | 0.500 | 0.500 | **1.000** |
+
+**The distributions do not separate.** An out-of-corpus question reaches the same top score as
+the best in-corpus one. This is a property of RRF, not a bug: the fused score is
+`Σ 1/(k + rank_i)` over ranks, normalised by Qdrant. It encodes *agreement between retrievers
+about ordering*, not *similarity to the query*. Both retrievers will happily rank something
+first when nothing is relevant, and that unanimity scores exactly as high as a real hit.
+
+**Decision.** No floor value on the fused score can implement FR-G6's intent, so none is
+invented. `relevance_floor` stays at `0.0` and is documented as guarding only the genuinely
+empty case — filters excluding everything, or an un-ingested corpus — which it does correctly
+and which the tests cover. **Out-of-scope refusal is reassigned to the T1 topicality rail**
+(FR-GR1, Phase 3): cosine distance from the query embedding to the corpus centroid *is* a
+calibrated similarity, and it is the right instrument for this.
+
+**Consequences, stated plainly.** Until Phase 3 lands, this system will answer an out-of-scope
+question using whatever the corpus ranked first, rather than refusing. That is a real gap
+against FR-G6 and it is recorded here rather than papered over with a floor that looks like a
+threshold and separates nothing.
+
+**Rejected — floor on the dense cosine score instead.** Workable in principle, but it needs
+retrieval to surface the pre-fusion dense score, which server-side RRF deliberately does not
+return (ADR-007), and it would duplicate the topicality rail one phase early.
+
+---
+
+## ADR-016 — Citation prompt wording, chosen by measurement after the obvious improvement lost
+
+**Context.** FR-G4 requires every factual sentence to carry a citation marker. Enforcement can
+only remove markers that do not resolve; it cannot make the model emit one. Whether answers get
+cited at all is therefore a property of the prompt, and it is measurable.
+
+**Measured, 2026-09-12** — 28 hand-authored golden queries, corpus of 567 chunks / 80 files,
+`temperature=0`, fusion-only retrieval, `k_final=5`:
+
+| Prompt variant | answers citing nothing | mean citations / answer | p50 latency |
+|---|---|---|---|
+| **A — citation rule stated first, plainly** | **12/28 (43%)** | **0.61** | 34.6 s |
+| B — `CITATION FORMAT` heading, worked example, rule moved last for recency | 18/28 (64%) | 0.39 | 34.2 s |
+
+**Decision.** Keep variant A. Variant B was the change expected to help — a concrete worked
+example and a recency-favoured position are both standard advice for small instruct models — and
+it made the metric **21 points worse**. It was reverted.
+
+**Why this is recorded rather than quietly dropped.** This is the second time in this project
+that a confident prior lost to a measurement (ADR-003 was the first). The value is not the
+wording; it is that a prompt change is now a thing with a number attached. The comment above
+`SYSTEM_PROMPT` says so at the call site, because the next person to "improve" that string will
+not read this file first.
+
+**Not claimed.** No mechanism is offered for *why* B lost. With n=28 and one model the honest
+statement is that it lost, not why. A larger golden set would be needed to say more, and
+inventing an explanation would be exactly the intuition this table exists to displace.
+
+**Open gap, stated plainly.** 43% of answers still carry no citation at all. Enforcement is
+working as specified — it strips fabricated markers, and over these 28 queries there were
+**zero** to strip — but a well-formed uncited answer passes straight through as `ungrounded`.
+Closing that is Phase 3 and 4 work: the T2 groundedness rail acts on the flag, and Tier B's
+citation-recall metric (FR-E2) turns it into a gated number. Phase 2 flags it honestly and
+does not pretend to solve it.

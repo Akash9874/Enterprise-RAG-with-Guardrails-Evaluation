@@ -4,10 +4,12 @@ A Retrieval-Augmented Generation service that answers questions about a code + d
 corpus, **runs entirely on local CPU at zero marginal cost**, and treats safety and measurement
 as engineering problems rather than afterthoughts.
 
-> **Status: Phase 0 of 5 complete.** What exists today is a verified *walking skeleton* — the
-> full HTTP → retrieval → local LLM → cited-response loop works end to end, but retrieval is
-> still a hardcoded stub. Real hybrid retrieval, the guardrail pipeline, and the evaluation
-> harness are specified and planned, not yet built. Progress is tracked honestly below.
+> **Status: Phases 0–2 of 5 complete.** The system indexes its own repository, retrieves from
+> it with hybrid dense + sparse search, and answers with citations that are checked against the
+> chunks actually supplied to the model. Retrieval is measured by a zero-LLM eval harness. The
+> guardrail pipeline is specified and planned, not yet built — so out-of-scope questions are
+> **not** yet refused. Every number below came from this project's own harness, including the
+> ones that are unflattering.
 
 ---
 
@@ -49,19 +51,33 @@ here. Each rejection is recorded with its reasoning in
 
 ```
 GET  /health   →  {"status":"ok","dependencies":{"qdrant":true,"ollama":true}}
-POST /query    →  a cited answer from a local Qwen2.5-3B
+POST /query    →  a cited answer from a local Qwen2.5-3B, streaming optional
+uv run rag ingest --source .       →  80 files → 567 chunks in 4.4 s
+uv run rag eval retrieval          →  Tier A metrics in 1.3 s, no LLM
 ```
 
-A real response from the running system:
+Ask it about itself, and it answers from its own source:
 
-> `[1]` Reciprocal Rank Fusion (RRF) combines several ranked result lists into one by summing
-> 1 / (k + rank) across retrievers, conventionally with k = 60. It needs no score normalisation,
-> which is why it suits fusing cosine similarity with BM25.
+> Every chunk gets a stable, content-derived `chunk_id`, so re-ingestion is idempotent and
+> golden-set references survive re-indexing. **[1]**
 >
-> **[1]** `ADR-007 > Qdrant with server-side RRF fusion` → `Docs/decisions.md`
+> **[1]** `make_chunk_id` → `src/rag/contracts.py`
 
-Measured on the reference hardware: **19 s cold** (includes loading the model into RAM),
-**7 s warm**. 43 tests, 97% line coverage, `mypy --strict` clean.
+### Measured on the reference hardware
+
+| | |
+|---|---|
+| Retrieval (28 golden queries, fusion only) | NDCG@5 **0.752** · Recall@5 **0.786** · MRR **0.671** · 1.3 s total |
+| Citations resolving to a real chunk | **28/28** |
+| Fabricated markers stripped | **0** over 28 queries — the machinery is proven by unit tests, not by traffic |
+| Answers citing nothing at all | **12/28 (43%)** — flagged `ungrounded`, not hidden |
+| End-to-end latency | p50 **34.6 s** · p95 **68.5 s** — **misses the ≤ 20 s target** |
+| Tests | 178, `mypy --strict` clean, 98% coverage on `generation/`, `retrieval/`, `eval/` |
+
+Two of those numbers are bad, and they are printed at the same size as the good ones on purpose.
+The 43% uncited rate is a real gap that the Phase 3 groundedness rail and the Phase 4 Tier B
+metric exist to close. The latency misses NFR-1 and that will be re-measured, not re-worded,
+when `rag bench` lands.
 
 ---
 
@@ -98,8 +114,8 @@ uv run ruff check . && uv run mypy src/
 | Phase | Scope | Status |
 |---|---|---|
 | **0** | Foundation + walking skeleton | ✅ **Complete** — verified against live Qdrant and Ollama |
-| **1** | Ingestion (tree-sitter + markdown), hybrid retrieval, **Tier A eval harness** | 📋 Planned in detail |
-| **2** | Generation with enforced citations, streaming | 📋 Roadmap |
+| **1** | Ingestion (tree-sitter + markdown), hybrid retrieval, **Tier A eval harness** | ✅ **Complete** — metrics measured, reranker disabled on the evidence (ADR-003) |
+| **2** | Generation with enforced citations, streaming | ✅ **Complete** — citations verified against the live corpus |
 | **3** | Tiered guardrail pipeline + adversarial suite | 📋 Roadmap |
 | **4** | Eval depth, HTML report, CI gates, demo UI | 📋 Roadmap |
 
@@ -130,7 +146,8 @@ query → GUARDRAILS (T0 regex · T0 PII · T1 injection · T1 topical)
 | Generation | Qwen2.5-3B-Instruct Q4_K_M (Ollama) | Strongest small model on technical content; 7B drops to ~5 tok/s here |
 | Embedding | `bge-small-en-v1.5` | 384-dim, fast on CPU |
 | Sparse | Qdrant-native BM25 | Server-side fusion, one round trip, no second index to sync |
-| Rerank | `ms-marco-MiniLM-L-6-v2` (22M) | ~25 ms vs ~2 s for `bge-reranker-large` |
+| Rerank | `ms-marco-MiniLM-L-6-v2` (22M) | **Measured and switched off by default** — lift was −0.106 NDCG@5 at 2.3 s/query (ADR-003) |
+| Citations | Post-hoc marker validation | Constrained decoding needs logit control Ollama does not expose (ADR-013) |
 | Groundedness | Vectara HHEM-2.1-Open | Deterministic; serves as both a guardrail and an eval metric |
 
 ---
@@ -138,7 +155,7 @@ query → GUARDRAILS (T0 regex · T0 PII · T1 injection · T1 topical)
 ## Documentation
 
 - **[Docs/prd.md](Docs/prd.md)** — requirements, constraints, data contracts, NFRs
-- **[Docs/decisions.md](Docs/decisions.md)** — 12 ADRs, including what was rejected and why
+- **[Docs/decisions.md](Docs/decisions.md)** — 16 ADRs, including what was rejected and why — and the three occasions a confident design assumption lost to a measurement
 - **[Docs/plans/](Docs/plans/)** — phased implementation plans
 - **[CLAUDE.md](CLAUDE.md)** — architecture invariants and working practice
 

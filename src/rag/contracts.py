@@ -86,6 +86,12 @@ class Answer(BaseModel):
     text: str
     citations: list[Citation] = Field(default_factory=list)
     retrieved: list[Retrieved] = Field(default_factory=list)
+    # Set by generation, and distinct from the guardrail trace below: `refused` is the
+    # empty-retrieval refusal of FR-G6, `ungrounded` and `stripped_markers` are what
+    # citation enforcement (FR-G4) found. The output rails consume all three.
+    refused: bool = False
+    ungrounded: bool = False
+    stripped_markers: list[str] = Field(default_factory=list)
     trace: GuardrailTrace | None = None
     stage_timings: dict[str, float] = Field(default_factory=dict)
     model_info: dict[str, str] = Field(default_factory=dict)

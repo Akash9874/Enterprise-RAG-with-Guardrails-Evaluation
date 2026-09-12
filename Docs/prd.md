@@ -401,6 +401,9 @@ class Answer:
     text: str
     citations: list[Citation]
     retrieved: list[Retrieved]
+    refused: bool            # empty-retrieval refusal (FR-G6)
+    ungrounded: bool         # no citation survived enforcement (FR-G4)
+    stripped_markers: list[str]  # fabricated markers removed, recorded (FR-G4)
     trace: GuardrailTrace | None
     stage_timings: dict[str, float]
     model_info: dict[str, str]
@@ -422,6 +425,7 @@ evidence. The README reproduces this table with measured numbers once the harnes
 | Guardrail engine | **Custom tiered pipeline** | **NeMo Guardrails** — its rails are LLM-call-based; four of them on CPU is 60+ s/query. **LlamaGuard** — 8B, exceeding the entire RAM budget. Both are documented as evaluated-and-rejected, with measurements. |
 | Groundedness | **HHEM-2.1-Open** (184M, Apache-2.0) | An LLM judge costs seconds per check and is non-deterministic. HHEM is purpose-built, deterministic, and doubles as an eval metric. |
 | Eval framework | **Custom Tier A/B, plus Ragas for Tier C only** | Ragas alone would make every metric LLM-dependent and impossible to run in CI. TruLens dropped as fully overlapping. |
+| Citation enforcement | **Post-hoc marker validation** | Constrained decoding — needs logit-level control Ollama does not expose, and cannot catch an in-range but unsupported citation anyway. See ADR-013. |
 | Python | **3.12**, pinned via `uv` | 3.14 is ahead of `spacy` / `presidio` / torch wheel availability. |
 
 ---

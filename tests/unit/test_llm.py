@@ -95,3 +95,45 @@ def test_client_is_constructed_with_the_configured_timeout(
 
     assert captured["host"] == settings.ollama.host
     assert captured["timeout"] == settings.ollama.timeout_s
+
+
+def test_generate_stream_yields_content_deltas() -> None:
+    client = MagicMock()
+    client.chat.return_value = iter(
+        [
+            {"message": {"content": "RRF "}},
+            {"message": {"content": "fuses ranks [1]."}},
+        ]
+    )
+    llm = OllamaClient(Settings(), client=client)
+
+    assert list(llm.generate_stream("hi")) == ["RRF ", "fuses ranks [1]."]
+    assert client.chat.call_args.kwargs["stream"] is True
+
+
+def test_generate_stream_sends_the_system_message() -> None:
+    client = MagicMock()
+    client.chat.return_value = iter([{"message": {"content": "ok"}}])
+    llm = OllamaClient(Settings(), client=client)
+    list(llm.generate_stream("hi", system="be terse"))
+
+    messages = client.chat.call_args.kwargs["messages"]
+    assert messages[0] == {"role": "system", "content": "be terse"}
+
+
+def test_generate_stream_handles_real_ollama_chunk_types() -> None:
+    """The real client streams pydantic ChatResponse objects, not dicts."""
+    settings = Settings()
+    client = MagicMock()
+    client.chat.return_value = iter(
+        [
+            ChatResponse(
+                model=settings.models.generator, message=Message(role="assistant", content="a")
+            ),
+            ChatResponse(
+                model=settings.models.generator, message=Message(role="assistant", content="b")
+            ),
+        ]
+    )
+    llm = OllamaClient(settings, client=client)
+    assert "".join(llm.generate_stream("hi")) == "ab"

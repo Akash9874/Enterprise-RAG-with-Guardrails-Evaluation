@@ -12,6 +12,11 @@ retrieval:
   k_fuse: 30               # MEASURED: no effect on top-5 with rerank off (ADR-003)
   k_final: 5               # UNMEASURED
   rrf_k: 60                # conventional RRF constant
+  # MEASURED 2026-09-12: in-corpus and out-of-corpus top-1 fused scores fully overlap
+  # (both reach 1.000), so no floor on this score can detect an out-of-scope question.
+  # Guards the genuinely-empty case only. Out-of-scope refusal is the Phase 3
+  # topicality rail's job. See ADR-015.
+  relevance_floor: 0.0
   context_budget_tokens: 2400
   # MEASURED 2026-09-11: reranking cost ~2.3 s/query and lift was negative at every
   # k_fuse (-0.106 at 30). Fusion-only scores NDCG@5 0.752 vs 0.646. See ADR-003.
