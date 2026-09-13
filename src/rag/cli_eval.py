@@ -11,9 +11,11 @@ from rich.table import Table
 from rag.config import Settings, get_settings, project_path
 from rag.eval.adversarial import DEFAULT_SUITE_PATH, load_suite
 from rag.eval.adversarial_runner import run_suite, run_suite_full
-from rag.eval.golden import load_golden, stale_chunk_refs
+from rag.eval.generation_runner import TierBResult, run_tier_b
+from rag.eval.golden import GoldenQuery, load_golden, stale_chunk_refs
 from rag.eval.provenance import collect_provenance
 from rag.eval.runner import run_tier_a
+from rag.eval.scorers import HHEMSupportScorer, TokenEmbedder
 from rag.guardrails.factory import build_pipeline, cached_centroid_provider
 from rag.guardrails.policy import load_policy
 from rag.index.qdrant_store import QdrantStore
@@ -81,6 +83,50 @@ def eval_retrieval(
         f"[dim]corpus={prov.corpus_commit} config={prov.config_hash} "
         f"policy={prov.policy_hash} golden={prov.golden_set_hash}[/dim]"
     )
+
+
+def build_tier_b(settings: Settings, queries: list[GoldenQuery], progress: bool) -> TierBResult:
+    from rag.api.deps import get_guarded_answerer, get_policy
+
+    t_pass = get_policy().for_rail("groundedness").t_pass
+    if t_pass is None:
+        raise typer.BadParameter("groundedness t_pass must be set in config/guardrails.yaml")
+    return run_tier_b(
+        queries,
+        get_guarded_answerer(),
+        HHEMSupportScorer(settings),
+        TokenEmbedder(settings),
+        t_pass=t_pass,
+        progress=progress,
+    )
+
+
+def print_tier_b(result: TierBResult) -> None:
+    table = Table(title="Tier B — generation (hand and synthetic never pooled)")
+    table.add_column("Metric")
+    table.add_column("Hand", justify="right")
+    table.add_column("Synthetic", justify="right")
+    metrics = sorted({m for half in result.by_provenance.values() for m in half})
+    for metric in metrics:
+        cells = [result.by_provenance[p].get(metric) for p in ("hand", "synthetic")]
+        table.add_row(metric, *("—" if v is None else f"{v:.3f}" for v in cells))
+    console.print(table)
+    for half in ("hand", "synthetic"):
+        console.print(f"[dim]{half}: {result.counts[half]}[/dim]")
+
+
+@eval_app.command("generation")
+def eval_generation(
+    golden: str | None = typer.Option(
+        None, help="Golden set path (default: settings.eval.golden_path)."
+    ),
+    verbose: bool = typer.Option(False, "--verbose", help="Print each query as it runs."),
+) -> None:
+    """Tier B. Generates every answer on CPU — expect tens of minutes, not seconds."""
+    settings = get_settings()
+    path = Path(golden) if golden else project_path(settings.eval.golden_path)
+    queries = load_golden(path)
+    print_tier_b(build_tier_b(settings, queries, progress=verbose))
 
 
 @eval_app.command("adversarial")
