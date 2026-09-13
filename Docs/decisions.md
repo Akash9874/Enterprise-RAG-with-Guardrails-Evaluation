@@ -907,3 +907,117 @@ smoke measurement of cost and parse reliability. Tier A and B remain the backbon
 **Rejected.** Ragas as a core dependency: 38 packages on every install for an opt-in tier.
 Hand-rolled Ragas-style prompts: zero packages, but "Ragas-like" numbers comparable with no one
 else's. Dropping Tier C: defensible given a 3B judge, but FR-E3 is in scope.
+
+---
+
+## ADR-028 — Compose runs qdrant, api and ui; Ollama stays on the host
+
+**Context.** Success criterion 1: `docker compose up` followed by one ingest command yields a working
+demo in ≤ 90 s, with models pre-pulled (NFR-6). On the reference machine Ollama runs natively with the
+generator already pulled. An Ollama container under Docker Desktop runs CPU-only inside the WSL VM and
+would pull 1.9 GB on a fresh volume.
+
+**Decision.** Compose builds one CPU-only image, used by both `api` and `ui`, and reaches host Ollama
+through `host.docker.internal`. Encoder weights live in a named `models` volume, warmed once by
+`scripts/bootstrap_models.py --warm`. The API healthcheck passes only when `/health` reports every
+dependency ready, not merely when the process is up. `POST /ingest` indexes the repository through a
+read-only `/corpus` mount, selected by the `self` source key.
+
+**Measured** (2026-09-13, reference laptop):
+
+| | result |
+|---|---|
+| `docker compose up -d --wait`, images built, models volume warm | **21.4 s** to all services healthy — NFR-6 ≤ 90 s, **PASS** |
+| `/health` | `ok`, with Qdrant and Ollama both ready; UI HTTP 200 |
+| host Ollama reached from a container | HTTP 200 as shipped; no `OLLAMA_HOST=0.0.0.0` change needed |
+| image size | **5.46 GB → 3.12 GB** after moving uv's download cache into a BuildKit cache mount |
+| encoder warm-up | 238 s into an empty volume; 27 s when cached |
+| `POST /ingest` inside the container | **1,192 s** — 1,306 chunks, 37 quarantined |
+| first query, cold | 78.8 s — generation 47.1 s, plus first-use model loads |
+| second query, warm | 50.5 s — generation 6.9 s, groundedness rail **43.0 s** (ADR-029) |
+
+The container ingest is 2.4× CI's 495 s: Docker Desktop's VM runs the injection scan slower than a
+native runner. It was also run without `--recreate`, so `/corpus/stats` reported 1,308 points against
+1,306 ingested. The two stale points survived from an earlier index, the incremental-ingest staleness
+that ADR-026's provenance fix now rejects.
+
+**Found on the way — four defects, all fixed in this phase.**
+
+1. *uv's download cache shipped inside the image.* `docker history` showed a 4.06 GB dependency layer
+   over a 2.1 GB venv, and `/root/.cache` held 1.75 GB of downloaded wheels. The second `uv sync` layer
+   was 3.47 MB, ruling out layer duplication before the cache mount went in.
+2. *`en_core_web_sm` was never locked.* It had been installed into the development venv by hand, so no
+   fresh install — CI or image — had the PII rail's model. It is now a pinned direct dependency.
+3. *HHEM's `trust_remote_code` load was unpinned.* A fresh container cache downloaded a new
+   `modeling_hhem_v2.py`. The rail and the Tier B scorer now load revision `8e4a2e6e`, the snapshot the
+   local cache had used for every ADR-021 measurement. At the pin, the real model scores a supported
+   claim 0.886 and a contradicted one 0.007, with no new-code warning. **Residual, not fixable here:**
+   HHEM's own code loads the `google/flan-t5-base` tokenizer from `config.foundation` without a revision.
+4. *The guardrail waterfall mislabelled a blocked request.* `block` and `refuse` were near-identical reds
+   (`#b71c1c`, `#c62828`), and the seven-entry legend was clipped to four, hiding `block`. On a one-bar
+   chart for a blocked injection attempt, a reader matched the bar to "refuse". **Found only by viewing
+   the rendered screenshot** — the page's accessibility tree was correct; the picture was not. `block`
+   is now near-black, and the legend lists only the verdicts on the chart.
+
+**Also stated plainly.** The image has no `git`, so chunks ingested inside it are stamped
+`corpus_commit: unknown` and eval reports cannot be written from the container. That is the intended
+refusal (ADR-026), not a gap: the container serves the demo, and evaluation runs where the tree's
+history is.
+
+**Rejected.** An Ollama service in Compose: fully self-contained, but a first run pulls 1.9 GB and runs
+slower inside the VM on this hardware. It is recorded in `FUTURE.md` as an optional profile for
+reviewers without a native Ollama.
+
+---
+
+## ADR-029 — Groundedness costs ~14 s per answer on CPU; NFR-2 as defined is not met
+
+**Context.** PRD §8 defines NFR-2 as *guardrail overhead p50 — sum of all rails, excluding T3 escalation
+— ≤ 300 ms*. Phase 3 recorded **184 ms p50, PASS**. But `rag bench` times `pipeline.run_input` only, so
+that PASS measured the input rails and never the output groundedness rail. The gap surfaced in the
+Compose demo, not in the harness: a warm query spent 6.9 s generating and **43.0 s** in the groundedness
+rail.
+
+**Ruled out first, by evidence.**
+
+- *Not T3 escalation.* The trace showed `escalated: false` and carried no escalation evidence. The
+  answer's mean HHEM score was 0.886, above `t_pass` 0.50, so the rail passed on T2 alone.
+- *Not mainly Docker.* The same 20 pairs were timed natively and in the container:
+
+  | 20 pairs, ~400-token premises, 6 torch threads | 1 pair | 20 pairs | ratio |
+  |---|---|---|---|
+  | host | 586 ms | **13,936 ms** | 23.8× |
+  | container | 648 ms | 19,327 ms | 29.8× |
+
+  The container adds ~1.4×; the cost exists natively.
+- *Not a missing batch.* The vendor `predict` already tokenizes every pair into one padded batch and runs
+  a single forward pass. Batching buys no per-sequence speed on this CPU — 697 ms per sequence in a
+  batch of 20 against 586 ms alone — because one ~400-token sequence already saturates the threads.
+
+**Root cause: plain compute.** ADR-021 scores each sentence against each retrieved chunk and keeps the
+max. That is correct — concatenating premises silently truncated at HHEM's 512-token window and
+destroyed the signal — but it makes one answer cost *sentences × chunks* forward passes of a T5-base
+cross-encoder at up to 512 tokens: 4 sentences × 5 chunks = 20 passes, ~14 s natively. The 197 ms
+recorded against this rail in PRD §7.4 does not hold for a realistic answer; a single ~400-token pair
+alone takes 586 ms on this machine.
+
+**Decision.** Keep per-chunk scoring and report the cost truthfully, rather than change a measured design
+this late. NFR-2 is recorded as **not met**: input rails 184 ms p50 (within target), groundedness ~14 s
+per typical answer natively (not). The README states the two numbers separately.
+
+**Options considered and deferred, with their costs** (`FUTURE.md`):
+
+| option | effect | cost |
+|---|---|---|
+| score only the chunks each sentence cites, as Tier B does | the warm query had 4 sentences and 1 citation: ~1–4 passes instead of 20 | reopens ADR-021; thresholds must be re-measured on the golden set |
+| run groundedness after the answer returns | leaves the latency path entirely | loses the hedge-before-display guarantee; changes the stream contract |
+| shorten premises | cheaper attention | reintroduces the truncation ADR-021 measured as destroying the signal |
+
+**Also found, separate from this latency: FR-GR7's escalation budget does not cap T3.** `_escalate`
+refuses to escalate only when the budget is already exhausted (`<= 0`). A positive budget is compared
+*after* the judge returns: on overrun the rail sets `budget_exceeded` and still returns the judge's
+verdict. FR-GR7 requires degrading to the T2 verdict. No test covers a positive-budget overrun. It did
+not cause the latency above — escalation never ran — and is recorded for a test-first fix.
+
+**The general lesson.** A benchmark that measures a convenient subset of a requirement reports a PASS for
+the subset. This one stood for a whole phase until a live demo exposed it.

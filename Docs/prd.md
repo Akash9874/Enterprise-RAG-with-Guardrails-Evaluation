@@ -270,7 +270,7 @@ The pipeline is the project's headline feature. Implementation detail lives in
 | Prompt injection | T1 | `deberta-v3-base-prompt-injection-v2` | ~40 ms (**measured 120 ms**) | block |
 | Topicality | T1 | Cosine distance to corpus embedding centroid | ~10 ms | refuse (out of scope) |
 | PII leak (output) | T0 | Presidio re-scan of generated text | ~30 ms | redact |
-| Groundedness | T2 | HHEM-2.1-Open, per answer-sentence vs **each retrieved chunk, max** (ADR-021) | ~150 ms (**measured 197 ms**) | hedge, repair, or refuse |
+| Groundedness | T2 | HHEM-2.1-Open, per answer-sentence vs **each retrieved chunk, max** (ADR-021) | ~150 ms (**measured ~14 s per typical answer**: ~586 ms per pair × sentences × chunks — ADR-029) | hedge, repair, or refuse |
 | Groundedness verify | T3 | LLM self-check — escalation band only | ~2–4 s | final verdict |
 
 The topicality rail reuses the retrieval embedder, so it adds no model residency.
@@ -342,7 +342,9 @@ never pooled into a single headline number.
 | NFR-9 | Paid-API calls in the default configuration | zero |
 
 Latency targets assume the reference hardware in §4, and are **asserted by the benchmark
-command**, not merely documented.
+command**, not merely documented. **Status, measured 2026-09-13: NFR-2 is not met.** `rag bench`
+times the input rails only (184 ms p50, within target); the output groundedness rail that NFR-2
+also counts costs ~14 s per typical answer on this CPU. See ADR-029.
 
 ---
 
@@ -461,6 +463,7 @@ evidence. The README reproduces this table with measured numbers once the harnes
 | BERTScore | **In-house over distilbert-base-uncased L5** | `bert-score` package — 11 extra dependencies for ~15 lines of numpy, identical to 2.4e-4. `deberta-xlarge-mnli` — 3.0 GB download. See ADR-024. |
 | CI regression gate | **Tier A in CI, Tier B gated locally** | Tier B in CI — ~100 min of CPU generation per PR. Re-scoring committed answers — cannot see generation regressions. Scan-less CI — gates a different corpus. Proven: an injected regression failed the gate (Recall@5 0.661 → 0.464). See ADR-026. |
 | Tier C judge | **Ragas via opt-in `judge` extra**, local Ollama judge by default | Ragas as a core dependency — +38 packages incl. langchain / langgraph, and 0.4.3 needs `langchain-community<0.4` to import at all. Hand-rolled Ragas-style prompts — numbers comparable with no one else's. See ADR-027. |
+| Groundedness latency | **Keep per-chunk HHEM scoring; report the cost** (NFR-2 not met) | Score cited chunks only — ~1–4 passes instead of 20, but reopens ADR-021 and its thresholds. Run groundedness after the answer returns — loses the hedge before display. Shorter premises — reintroduces the truncation ADR-021 measured as destroying the signal. See ADR-029. |
 
 ---
 

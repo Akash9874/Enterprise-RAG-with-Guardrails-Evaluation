@@ -4176,3 +4176,80 @@ git commit -m "docs: mark phase 4 complete against verified exit criteria"
 
 Use `superpowers:finishing-a-development-branch`. **Ask the user before pushing or marking the PR ready.**
 
+---
+
+## Deviations from the plan, recorded
+
+Written during execution, as each one happened. Numbers are from this project's own harness.
+
+**The contamination was smaller than the plan assumed, and the "before" numbers were not comparable.**
+The plan expected `eval/` to be a large share of the index. It was 1 chunk of 567, and 2 of 1,049 on
+the Phase 4 tree. The Phase 1–3 Tier A figures (NDCG@5 0.716, Recall@5 0.750) were also measured on a
+corpus that has since nearly doubled, so a before/after on different trees would have measured corpus
+growth, not the fix. Replaced with a controlled A/B on one tree: indexing `eval/` cost −0.034 NDCG@5
+and −0.024 MRR, with recall unchanged (ADR-023).
+
+**The ingest scan quarantines real code, so CI keeps the scan on.** The plan's CI job used
+`--no-scan`, on the assumption that nothing in this corpus is quarantined. Measured: 29 chunks, including
+`cli_eval.py`, `guardrails/pipeline.py` and `guardrails/policy.py`. Skipping the scan in CI would gate
+a different corpus from the one the product serves.
+
+**`en_core_web_sm` was pulled forward from Task 14 to Task 10.** A `uv sync --dry-run` showed that a
+clean sync would uninstall it: it had been installed by hand and was never in `uv.lock`. The PII rail
+depends on it (ADR-018), so it became a pinned direct dependency before anything synced.
+
+**Ragas 0.4.3 does not import against its own resolved dependencies.** It leaves `langchain-community`
+unpinned but imports `langchain_community.chat_models.vertexai`, which 0.4.x removed. Diagnosed with
+systematic debugging and confirmed in an isolated environment before touching the project: 0.4.2 fails at
+import, 0.3.31 works. The `judge` extra now constrains `langchain-community<0.4`. The plan's adapter
+also called `ragas.embeddings.embedding_factory`, which 0.4.3 deprecates in favour of
+`HuggingFaceEmbeddings`; the adapter was updated after reading the installed signatures.
+
+**Tier C was measured on a 3-query slice, not a full report.** The first live Tier B run (98.5 min) was
+started before `--out` existed, so it wrote no report to judge. Re-running Tier B only to feed the judge
+would have cost another ~100 min, so Tier C was measured on 3 hand queries, and ADR-027 states n=3.
+
+**Timings measured under CPU contention are marked as such.** Tier B's 98.5 min wall time ran alongside
+the unit-test loops of Tasks 7–9. The Tier C judge overlapped the Docker image build.
+
+**`build_adversarial` takes the loaded cases, not a suite path.** The plan's signature would have made
+`rag eval adversarial --suite <path>` ignore its own argument.
+
+**`src/rag/cli_eval.py` ended above the ~300-line signal** (325 lines after Task 9, more after Tier C).
+Moving the builders into `rag.eval.wiring` brought it under the limit once; the `gate`,
+`promote-baseline` and `judge` commands pushed it back over. It is left as one file of thin command
+wrappers rather than split mid-phase, and noted here rather than hidden.
+
+**`uv add` could not re-sync while a background eval held `rag.exe` open (Windows file lock).**
+Dependency declarations during those runs used `uv add --no-sync` and `uv lock`, and were synced once
+the run finished. It had no effect on results; recorded because it will recur on Windows.
+
+**Two defects found during execution were fixed in this phase, at the user's direction.**
+Neither was in the plan.
+
+1. *Provenance recorded the wrong commit.* It was found by the laptop-vs-CI comparison, which indexed a
+   worktree at `07b032b` from a checkout at `3e2a38e` and got a report stamped `3e2a38e-dirty`.
+   Ingest now stamps every chunk with the commit of the tree it indexes (asked of that tree, via
+   `rag.gitinfo`), and eval reads the stamps back from Qdrant. An index mixing commits, or holding
+   unstamped chunks, is rejected. That also surfaces stale chunks left by incremental ingests
+   (ADR-026). Every index built before this fix reads as `unknown` until it is re-ingested.
+2. *HHEM's `trust_remote_code` was unpinned.* It was found when a fresh container cache downloaded a new
+   `modeling_hhem_v2.py`. The rail and the Tier B scorer now load revision `8e4a2e6e`, the snapshot the
+   local cache had used for every ADR-021 measurement. The rail also stopped hardcoding its model name.
+   Real model at the pin: supported 0.886, contradicted 0.007, and no new-code warning. One residual is
+   out of reach: HHEM's own code loads the `google/flan-t5-base` tokenizer unpinned (ADR-028).
+
+**NFR-2 was never met as the PRD defines it.** It was found in the Compose demo, not in the harness: a
+warm query spent 43.0 s in the groundedness rail against 6.9 s of generation. `rag bench` has only
+ever timed the input rails, so Phase 3's "184 ms, PASS" measured a subset of "sum of all rails". Two
+hypotheses were tested and rejected on the way — T3 escalation (the trace showed it never ran) and a
+missing batch (the vendor code already batches) — before the cause was pinned to per-chunk
+cross-encoder compute. At the user's direction it is documented, not re-architected (ADR-029).
+
+**The guardrail legend misreported a blocked request as refused.** It was found only by viewing the
+rendered screenshot: the accessibility tree was correct, the pixels were not. Fixed (ADR-028).
+
+**ADR numbers moved.** The plan assigned ADR-023 to the contamination and ADR-024 to BERTScore, then
+used ADR-026 for CI in Task 6. The final order is 023 contamination, 024 BERTScore and Tier B
+definitions, 025 gate rules, 026 CI scope, 027 Ragas, 028 Compose, 029 groundedness latency.
+
