@@ -12,6 +12,7 @@ from rag.config import Settings, get_settings, project_path
 from rag.eval.adversarial import DEFAULT_SUITE_PATH, load_suite
 from rag.eval.adversarial_runner import run_suite, run_suite_full
 from rag.eval.golden import load_golden, stale_chunk_refs
+from rag.eval.provenance import collect_provenance
 from rag.eval.runner import run_tier_a
 from rag.guardrails.factory import build_pipeline, cached_centroid_provider
 from rag.guardrails.policy import load_policy
@@ -75,9 +76,10 @@ def eval_retrieval(
         console.print("[dim]Reranker lift not measured (--lift to measure). See ADR-003.[/dim]")
     else:
         console.print(f"[bold]Reranker lift (ΔNDCG@{k}):[/bold] {result.reranker_lift:+.4f}")
+    prov = collect_provenance(settings, queries, path)
     console.print(
-        f"[dim]corpus={result.provenance['corpus_commit']} "
-        f"config={result.provenance['config_hash']}[/dim]"
+        f"[dim]corpus={prov.corpus_commit} config={prov.config_hash} "
+        f"policy={prov.policy_hash} golden={prov.golden_set_hash}[/dim]"
     )
 
 

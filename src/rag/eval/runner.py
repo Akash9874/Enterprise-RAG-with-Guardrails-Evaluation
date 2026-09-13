@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import statistics
-import subprocess
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -27,20 +26,6 @@ class TierAResult(BaseModel):
     reranked: bool = False
     scored_queries: int
     per_query: list[dict[str, Any]] = Field(default_factory=list)
-    provenance: dict[str, Any] = Field(default_factory=dict)
-
-
-def _corpus_commit() -> str:
-    try:
-        return subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5,
-        ).stdout.strip()
-    except Exception:  # noqa: BLE001 - provenance must never break a run
-        return "unknown"
 
 
 def _identifiers(results: list[Retrieved], use_files: bool) -> list[str]:
@@ -129,19 +114,4 @@ def run_tier_a(
         reranked=reranked,
         scored_queries=len(scored),
         per_query=per_query,
-        provenance={
-            "corpus_commit": _corpus_commit(),
-            "config_hash": settings.config_hash(),
-            "models": {
-                "embedder": settings.models.embedder,
-                "reranker": settings.models.reranker,
-                "generator": settings.models.generator,
-            },
-            "judge": None,
-            "tier_c_enabled": False,
-            "golden_set": {
-                "hand": sum(1 for q in queries if q.provenance == "hand"),
-                "synthetic": sum(1 for q in queries if q.provenance == "synthetic"),
-            },
-        },
     )

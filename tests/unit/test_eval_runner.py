@@ -81,16 +81,6 @@ def test_falls_back_to_file_level_ground_truth_when_chunk_ids_are_absent() -> No
     assert result.overall["recall@5"] == 1.0
 
 
-def test_result_carries_the_required_provenance_block() -> None:
-    queries = [GoldenQuery(id="q1", query="?", provenance="hand", relevant_chunk_ids=["a"])]
-    retriever = _retriever({True: [_retrieved("a")], False: [_retrieved("a")]})
-
-    result = run_tier_a(queries, retriever, Settings(), k=5)
-    assert result.provenance["config_hash"]
-    assert result.provenance["models"]["embedder"] == "BAAI/bge-small-en-v1.5"
-    assert result.provenance["golden_set"] == {"hand": 1, "synthetic": 0}
-
-
 def test_refusal_queries_are_excluded_from_retrieval_metrics() -> None:
     queries = [
         GoldenQuery(id="r1", query="?", provenance="hand", expect_refusal=True),
