@@ -34,6 +34,12 @@ def _project_root() -> Path:
 DEFAULT_CONFIG_PATH = _project_root() / "config" / "settings.yaml"
 
 
+def project_path(value: str) -> Path:
+    """Resolve a configured path against the project root unless it is already absolute."""
+    path = Path(value)
+    return path if path.is_absolute() else _project_root() / path
+
+
 class ModelSettings(BaseModel):
     embedder: str = "BAAI/bge-small-en-v1.5"
     reranker: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -67,6 +73,10 @@ class OllamaSettings(BaseModel):
     temperature: float = 0.0
 
 
+class EvalSettings(BaseModel):
+    golden_path: str = "eval/golden/golden.yaml"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="RAG_",
@@ -78,6 +88,7 @@ class Settings(BaseSettings):
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
+    eval: EvalSettings = Field(default_factory=EvalSettings)
 
     @classmethod
     def settings_customise_sources(

@@ -8,10 +8,10 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rag.config import Settings, get_settings
+from rag.config import Settings, get_settings, project_path
 from rag.eval.adversarial import DEFAULT_SUITE_PATH, load_suite
 from rag.eval.adversarial_runner import run_suite, run_suite_full
-from rag.eval.golden import load_golden
+from rag.eval.golden import load_golden, stale_chunk_refs
 from rag.eval.runner import run_tier_a
 from rag.guardrails.factory import build_pipeline, cached_centroid_provider
 from rag.guardrails.policy import load_policy
@@ -32,7 +32,9 @@ def build_retriever(settings: Settings) -> HybridRetriever:
 
 @eval_app.command("retrieval")
 def eval_retrieval(
-    golden: str = typer.Option("eval/golden/retrieval.yaml", help="Golden set path."),
+    golden: str | None = typer.Option(
+        None, help="Golden set path (default: settings.eval.golden_path)."
+    ),
     k: int = typer.Option(5, help="Cutoff for @k metrics."),
     lift: bool | None = typer.Option(
         None,
@@ -42,7 +44,13 @@ def eval_retrieval(
     ),
 ) -> None:
     settings = get_settings()
-    queries = load_golden(Path(golden))
+    path = Path(golden) if golden else project_path(settings.eval.golden_path)
+    queries = load_golden(path)
+
+    stale = stale_chunk_refs(queries, QdrantStore(settings).chunk_ids())
+    if stale:
+        console.print(f"[red]Stale golden references[/red] (chunk edited or not ingested): {stale}")
+        raise typer.Exit(code=2)
 
     measure_lift = settings.retrieval.rerank_enabled if lift is None else lift
     retriever = build_retriever(settings)

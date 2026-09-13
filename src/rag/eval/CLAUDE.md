@@ -58,7 +58,8 @@ one supporting citation.
 
 ## Golden set
 
-`eval/golden/retrieval.yaml`, `eval/golden/generation.yaml`.
+`eval/golden/golden.yaml` — one file; `golden_answer` and `expect_refusal` are per entry.
+`eval/` is never indexed (ADR-023): a golden file in the corpus lets a query retrieve itself.
 
 ```yaml
 - id: q-014

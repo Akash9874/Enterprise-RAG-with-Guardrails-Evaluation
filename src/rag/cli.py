@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rag.cli_eval import eval_app
-from rag.config import get_settings
+from rag.config import get_settings, project_path
 from rag.contracts import RailContext
 from rag.eval.golden import load_golden
 from rag.guardrails.factory import build_pipeline, cached_centroid_provider
@@ -74,11 +74,14 @@ def ingest(
 
 @app.command()
 def bench(
-    golden: str = typer.Option("eval/golden/retrieval.yaml", help="Queries to benchmark."),
+    golden: str | None = typer.Option(
+        None, help="Queries to benchmark (default: settings.eval.golden_path)."
+    ),
 ) -> None:
     """Assert the guardrail NFRs: overhead p50 <= 300 ms (NFR-2), escalation <= 10% (NFR-3)."""
     settings = get_settings()
-    queries = [q.query for q in load_golden(Path(golden))]
+    path = Path(golden) if golden else project_path(settings.eval.golden_path)
+    queries = [q.query for q in load_golden(path)]
     pipeline = build_pipeline(
         settings,
         load_policy(),

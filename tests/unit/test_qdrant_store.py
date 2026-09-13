@@ -68,6 +68,28 @@ def test_dense_centroid_pages_through_every_point() -> None:
     assert client.scroll.call_count == 2
 
 
+def test_iter_payloads_pages_until_offset_is_none() -> None:
+    client = MagicMock()
+    client.get_collections.return_value = MagicMock(collections=[MagicMock()])
+    client.get_collections.return_value.collections[0].name = Settings().qdrant.collection
+    client.scroll.side_effect = [
+        ([MagicMock(payload={"chunk_id": "a"})], "next"),
+        ([MagicMock(payload={"chunk_id": "b"})], None),
+    ]
+    store = QdrantStore(Settings(), client=client)
+
+    assert store.chunk_ids() == {"a", "b"}
+    assert client.scroll.call_args.kwargs["with_payload"] == ["chunk_id"]
+    assert client.scroll.call_args.kwargs["with_vectors"] is False
+
+
+def test_iter_payloads_of_an_absent_collection_is_empty() -> None:
+    client = MagicMock()
+    client.get_collections.return_value = MagicMock(collections=[])
+    assert list(QdrantStore(Settings(), client=client).iter_payloads()) == []
+    client.scroll.assert_not_called()
+
+
 def test_dense_centroid_of_an_absent_collection_is_none() -> None:
     client = MagicMock()
     client.get_collections.return_value = MagicMock(collections=[])

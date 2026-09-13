@@ -2,7 +2,18 @@ from pathlib import Path
 
 import pytest
 
-from rag.config import Settings, load_settings
+from rag.config import Settings, load_settings, project_path
+
+
+def test_project_path_anchors_relative_paths_to_the_repo_root() -> None:
+    resolved = project_path("eval/golden/golden.yaml")
+    assert resolved.is_absolute()
+    assert resolved.parts[-3:] == ("eval", "golden", "golden.yaml")
+    assert project_path(str(resolved)) == resolved
+
+
+def test_golden_path_is_configured() -> None:
+    assert Settings().eval.golden_path == "eval/golden/golden.yaml"
 
 
 def test_defaults_apply_when_no_yaml_present(tmp_path: Path) -> None:

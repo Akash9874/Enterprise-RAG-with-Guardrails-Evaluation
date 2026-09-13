@@ -670,3 +670,49 @@ fully supported, rather than withheld. Refusing remains available to anyone who 
 "lets an attack through" — it is equally "refuses everything and reports a perfect attack-success
 rate". Only the benign half of the suite distinguishes those, and this run is the concrete
 demonstration that the benign half earns its place.
+
+---
+
+## ADR-023 — Evaluation fixtures were in the corpus; `eval/` is never indexed
+
+**Context.** The loader indexes every `.yaml`, and only `eval/reports` was gitignored. The golden
+set and the adversarial suite were therefore retrievable context. A golden query could retrieve
+the file containing its own question text, and adversarial payloads sat in the index beside real
+code.
+
+**Decision.** `eval/` is a hard loader exclusion (`ALWAYS_SKIP_PREFIXES`), asserted by a test.
+
+**Measured effect — a controlled A/B on the same tree** (2026-09-13, fusion only, 28 hand
+queries, 1,047 chunks). The only difference between the rows is the two `eval/` chunks:
+
+| | NDCG@5 | MRR | Recall@5 | Hit@5 |
+|---|---|---|---|---|
+| `eval/` indexed | 0.650 | 0.607 | 0.661 | 0.714 |
+| `eval/` excluded | **0.684** | **0.631** | 0.661 | 0.714 |
+
+The contamination cost **−0.034 NDCG@5 and −0.024 MRR** and left recall and hit rate unchanged.
+The golden file did not knock relevant chunks out of the top 5; it outranked them. That damage
+is visible only in rank-sensitive metrics, which is why Recall@5 alone never showed it.
+
+**The earlier Tier A figures are not comparable, and this ADR does not pretend they are.** The
+Phase 1–3 numbers (NDCG@5 0.716, Recall@5 0.750 over 567 chunks) were measured on a corpus that
+has since nearly doubled with Phase 2–4 code and documentation. Against today's corpus, Recall@5
+is 0.661. That drop comes from corpus growth, not from this change, and it is reported rather
+than explained away.
+
+**Found on the way: the ingest scan now quarantines 29 chunks, and not only adversarial tests.**
+Most are unit tests that contain attack strings deliberately (`test_prompt.py`,
+`test_guardrail_pipeline.py`, `test_rail_injection.py` …). The classifier also quarantined
+product code: `src/rag/cli_eval.py` (2 chunks), `src/rag/guardrails/pipeline.py`,
+`src/rag/guardrails/policy.py`, and this phase's plan document. Those chunks are now invisible to
+retrieval. Two consequences:
+
+1. CI cannot skip the scan (`--no-scan`) without indexing a different corpus from the one the
+   product serves. The baseline must come from a scanned index.
+2. The injection threshold (`t_block 0.80`, still UNMEASURED) is quarantining the guardrail code
+   that *describes* injection. That is a false-positive rate on real code, recorded here, not
+   tuned in this phase.
+
+**Also.** The golden file is renamed `golden.yaml` and hashed with line endings normalised, so a
+CRLF checkout and the LF CI runner agree. Stale chunk references now fail the run (exit 2)
+instead of scoring as misses.

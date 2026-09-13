@@ -34,6 +34,10 @@ ALWAYS_SKIP = {
     "qdrant_storage",
 }
 
+# Evaluation fixtures describe the corpus; they are not part of it. Indexing them let a
+# golden query retrieve its own question text (ADR-023).
+ALWAYS_SKIP_PREFIXES = ("eval/",)
+
 
 @dataclass(frozen=True)
 class LoadedFile:
@@ -69,6 +73,8 @@ def load_repository(root: Path) -> Iterator[LoadedFile]:
             continue
 
         posix = relative.as_posix()
+        if posix.startswith(ALWAYS_SKIP_PREFIXES):
+            continue
         if spec is not None and spec.match_file(posix):
             continue
 

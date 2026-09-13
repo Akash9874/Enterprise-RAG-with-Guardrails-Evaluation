@@ -30,3 +30,6 @@ qdrant:
 ollama:
   host: http://localhost:11434
   temperature: 0.0         # deterministic; required for reproducible eval
+
+eval:
+  golden_path: eval/golden/golden.yaml

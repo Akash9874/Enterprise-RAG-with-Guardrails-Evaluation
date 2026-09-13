@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any, cast
 
 import structlog
@@ -89,6 +90,29 @@ class QdrantStore:
             return 0
         result = self._client.count(collection_name=self._settings.qdrant.collection, exact=True)
         return int(result.count)
+
+    def iter_payloads(
+        self, fields: list[str] | None = None, batch_size: int = 256
+    ) -> Iterator[dict[str, Any]]:
+        """Every point's payload, paged. `fields` limits what Qdrant sends back."""
+        if not self.collection_exists():
+            return
+        offset: Any = None
+        while True:
+            points, offset = self._client.scroll(
+                collection_name=self._settings.qdrant.collection,
+                limit=batch_size,
+                offset=offset,
+                with_payload=fields if fields is not None else True,
+                with_vectors=False,
+            )
+            for point in points:
+                yield dict(point.payload or {})
+            if offset is None:
+                break
+
+    def chunk_ids(self) -> set[str]:
+        return {str(payload["chunk_id"]) for payload in self.iter_payloads(["chunk_id"])}
 
     def dense_centroid(self, batch_size: int = 256) -> list[float] | None:
         """Mean of every indexed dense vector — the corpus's centre of mass.
