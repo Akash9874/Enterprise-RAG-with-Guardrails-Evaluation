@@ -45,14 +45,24 @@ appears. Do not skip zero-hit queries; dropping them inflates the score.
 the same fused candidates. This is the measured value of the rerank stage, and it is what
 justifies the model choice in PRD §10.
 
-**Groundedness** — mean HHEM factual-consistency score across answer sentences, each scored
-against the concatenated text of the chunks that answer cites. Sentences with no citation score
-`0`, and that is deliberate.
+**Groundedness (Tier B)** — mean over answer sentences of HHEM's score against **each chunk
+that sentence cites, scored separately, keeping the max**. Sentences with no citation score `0`,
+and that is deliberate. Never concatenate cited chunks into one premise: HHEM's window is 512
+tokens and concatenation silently truncated the support away (ADR-021). The *rail* scores
+against every retrieved chunk instead; the metric and the rail differ on purpose (ADR-024).
 
-**Citation precision** — of the citations the answer emits, the fraction whose chunk actually
-supports the sentence (HHEM above `t_pass`).
-**Citation recall** — of the sentences making factual claims, the fraction carrying at least
-one supporting citation.
+**Citation precision** — of all emitted (sentence, cited chunk) pairs, the fraction scoring
+≥ the groundedness policy's `t_pass`. **`None` when nothing is cited** — 0/0 is undefined, and
+reporting it as 0 or 1 would both mislead.
+**Citation recall** — of all sentences, the fraction with at least one cited chunk scoring
+≥ `t_pass`. Every sentence is treated as a claim; that simplification is stated in reports.
+
+**BERTScore F1** — greedy cosine matching over contextual token vectors
+(`distilbert-base-uncased`, layer 5), no IDF, no baseline rescaling, special tokens removed.
+Comparable run-to-run only, never to published BERTScore figures from other models.
+
+**Refusal correctness** — fraction of queries where `refused == expect_refusal`, reported with
+its four cells: correct answer, correct refusal, false refusal, missed refusal.
 
 ---
 
