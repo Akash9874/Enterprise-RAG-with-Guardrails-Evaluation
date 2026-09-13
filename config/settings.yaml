@@ -33,6 +33,12 @@ ollama:
   host: http://localhost:11434
   temperature: 0.0         # deterministic; required for reproducible eval
 
+judge:
+  # Tier C only (opt-in, `uv sync --extra judge`). Any OpenAI-compatible endpoint; the
+  # default is local Ollama, so Tier C costs nothing (NFR-9). Override with RAG_JUDGE__*.
+  base_url: http://localhost:11434/v1
+  api_key_env: RAG_JUDGE_API_KEY
+
 eval:
   golden_path: eval/golden/golden.yaml
   bertscore_layer: 5         # bert-score's default num_layers for distilbert-base-uncased

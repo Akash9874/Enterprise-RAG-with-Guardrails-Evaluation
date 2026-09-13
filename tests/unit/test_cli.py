@@ -187,6 +187,13 @@ def test_eval_all_writes_json_and_html_without_a_baseline(
     assert written == [".html", ".json"]
 
 
+def test_eval_judge_refuses_a_report_without_tier_b(tmp_path: Path) -> None:
+    source = write_report(make_report(0.8), tmp_path / "tier-a-only.json")
+    result = runner.invoke(app, ["eval", "judge", str(source)])
+    assert result.exit_code == 1
+    assert "no tier b" in result.stdout.lower()
+
+
 def test_eval_retrieval_fails_clearly_on_a_missing_golden_set() -> None:
     result = runner.invoke(app, ["eval", "retrieval", "--golden", "nope.yaml"])
     assert result.exit_code != 0

@@ -34,6 +34,17 @@ dependencies = [
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
 ]
 
+[project.optional-dependencies]
+# Tier C only. Ragas adds 38 packages (langchain, langgraph x4, sqlalchemy, openai …) —
+# the stack PRD §10 rejected for orchestration — so it is never a default dependency (ADR-027).
+judge = [
+    "ragas>=0.4,<0.5",
+    # ragas 0.4.3 leaves langchain-community unpinned but imports
+    # langchain_community.chat_models.vertexai, which 0.4.x removed. Measured: 0.4.2 fails
+    # at import, 0.3.31 imports cleanly alongside langchain-core 1.6.3 (ADR-027).
+    "langchain-community<0.4",
+]
+
 [project.scripts]
 rag = "rag.cli:app"
 
@@ -84,6 +95,11 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF", "BLE"]
 python_version = "3.12"
 strict = true
 files = ["src"]
+
+[[tool.mypy.overrides]]
+# The judge extra is opt-in; CI type-checks without it installed.
+module = ["ragas.*", "openai.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

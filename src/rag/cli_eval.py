@@ -14,6 +14,7 @@ from rag.eval.gate import GateResult, PromotionError, evaluate_gate, promote_bas
 from rag.eval.generation_runner import TierBResult
 from rag.eval.golden import load_golden, stale_chunk_refs
 from rag.eval.html import render_html
+from rag.eval.judged import run_tier_c
 from rag.eval.provenance import collect_provenance
 from rag.eval.report import EvalReport, default_report_path, load_report, write_report
 from rag.eval.runner import run_tier_a
@@ -233,6 +234,40 @@ def eval_all(
         console.print(f"html -> {page}")
     if gate is not None and not gate.passed:
         raise typer.Exit(code=1)
+
+
+@eval_app.command("judge")
+def eval_judge(
+    report: str = typer.Argument(..., help="A report carrying Tier B answers."),
+    limit: int | None = typer.Option(None, help="Judge only the first N answered queries."),
+) -> None:
+    """Tier C. Reuses Tier B's answers, so only the judge calls cost time (FR-E3)."""
+    from rag.eval.ragas_judge import RagasJudge
+
+    settings = get_settings()
+    source = load_report(Path(report))
+    if source.tier_b is None:
+        console.print("[red]That report has no Tier B answers to judge.[/red]")
+        raise typer.Exit(code=1)
+    try:
+        judge = RagasJudge(settings)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    result = run_tier_c(source.tier_b.per_query, judge, limit=limit)
+    judged = source.model_copy(
+        update={
+            "tier_c": result.model_dump(),
+            "provenance": source.provenance.model_copy(
+                update={"judge": judge.name, "tier_c_enabled": True}
+            ),
+        }
+    )
+    out = write_report(judged, default_report_path(project_path(settings.eval.reports_dir), judged))
+    console.print(f"[bold]Judge:[/bold] {judge.name}   report -> {out}")
+    for half in ("hand", "synthetic"):
+        console.print(f"{half}: {result.by_provenance[half]}  {result.counts[half]}")
 
 
 @eval_app.command("synthesize")

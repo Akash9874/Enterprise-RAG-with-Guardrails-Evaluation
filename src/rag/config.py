@@ -93,6 +93,15 @@ class EvalSettings(BaseModel):
     )
 
 
+class JudgeSettings(BaseModel):
+    # Tier C judge: any OpenAI-compatible endpoint. The default is local Ollama, so Tier C
+    # costs nothing (NFR-9). A free-tier hosted judge is an env override:
+    # RAG_JUDGE__BASE_URL, RAG_JUDGE__MODEL, and the key in the variable named below.
+    base_url: str = "http://localhost:11434/v1"
+    model: str | None = None  # None -> models.generator
+    api_key_env: str = "RAG_JUDGE_API_KEY"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="RAG_",
@@ -105,6 +114,7 @@ class Settings(BaseSettings):
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
     eval: EvalSettings = Field(default_factory=EvalSettings)
+    judge: JudgeSettings = Field(default_factory=JudgeSettings)
 
     @classmethod
     def settings_customise_sources(
