@@ -26,10 +26,21 @@ dependencies = [
     "transformers<5",
     "numpy>=1.26",
     "jinja2>=3.1",
+    # Declared directly only so [tool.uv.sources] can route it: uv sources apply to direct
+    # dependencies, and PyPI's Linux wheel pulls 15 CUDA packages this project cannot use.
+    "torch>=2.5",
 ]
 
 [project.scripts]
 rag = "rag.cli:app"
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [dependency-groups]
 dev = [

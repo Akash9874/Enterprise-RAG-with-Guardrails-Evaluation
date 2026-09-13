@@ -12,3 +12,5 @@ eval/reports/*.json
 # Unreviewed synthetic golden drafts — merged by hand after a human spot-check (PRD §7.5).
 eval/golden/*.draft.yaml
 .env
+# CI model cache (HF_HOME / FASTEMBED_CACHE_PATH in the retrieval-gate job)
+.cache/
