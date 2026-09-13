@@ -789,3 +789,47 @@ the 2-point threshold. So the gate trips on any single-query retrieval loss. Tha
 only because Tier A is bit-reproducible (`tests/integration/test_determinism.py`); on a noisy
 metric this threshold would be flake, not signal. Growing the hand half is the way to make the
 threshold mean what FR-E7 intended.
+
+---
+
+## ADR-027 — Ragas is an opt-in extra, pinned around a broken dependency, never a default
+
+**Context.** FR-E3 names Ragas for Tier C. Measured 2026-09-13, `ragas` 0.4.3 (the latest release)
+adds **38 packages** to the resolved set — `langchain`, `langchain-community`, `langchain-openai`,
+four `langgraph` packages, `sqlalchemy`, `openai`, `datasets`, `pyarrow`. That is the dependency
+tree PRD §10 rejected for orchestration.
+
+**Decision.** `[project.optional-dependencies] judge`. The default install, CI (which no longer uses
+`--all-extras`) and the Docker image never resolve it; a dry-run sync confirms zero Ragas or LangChain
+packages without the extra. Tier C reuses Tier B's stored answers and contexts, so it adds only judge
+calls. The judge is any OpenAI-compatible endpoint, defaulting to local Ollama (NFR-9), with a
+free-tier hosted judge available by env override. Its name is stamped into provenance, and
+`tier_c_enabled` without a judge is an invalid report.
+
+**Ragas 0.4.3 does not import against its own resolution.** It declares `langchain-community`
+unpinned but imports `langchain_community.chat_models.vertexai` at module load, which
+`langchain-community` 0.4.x removed. With the resolver's choice (0.4.2), `import ragas` raises
+`ModuleNotFoundError`. Confirmed in an isolated environment before touching the project:
+0.3.31 imports cleanly alongside this project's `langchain-core` 1.6.3. The extra therefore pins
+`langchain-community<0.4`. Separately, 0.4.3 deprecates `ragas.embeddings.embedding_factory`; the
+adapter uses `HuggingFaceEmbeddings` on the local bge-small embedder, written against the installed
+signatures rather than documentation.
+
+**Measured — and n is small on purpose, stated rather than hidden.** 3 hand queries, local judge
+`qwen2.5:3b-instruct-q4_K_M`, answers taken from a Tier B run on the same 3 queries:
+
+| | hand |
+|---|---|
+| faithfulness | 0.500 |
+| answer relevancy | 0.328 |
+| judgements failed to parse | 0 / 6 |
+| judge wall time | 475 s for 3 queries (~158 s/query), overlapping a Docker image build |
+
+At ~158 s per query a full golden set is well over an hour of judging on this laptop, which is why
+Tier C is opt-in and `--limit`-able, never part of `rag eval all` or CI. These three numbers are not
+a quality claim about the system: a 3B judge correlates poorly with human judgement, and n=3 is a
+smoke measurement of cost and parse reliability. Tier A and B remain the backbone.
+
+**Rejected.** Ragas as a core dependency: 38 packages on every install for an opt-in tier.
+Hand-rolled Ragas-style prompts: zero packages, but "Ragas-like" numbers comparable with no one
+else's. Dropping Tier C: defensible given a 3B judge, but FR-E3 is in scope.
