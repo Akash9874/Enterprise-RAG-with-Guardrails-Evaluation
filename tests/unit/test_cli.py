@@ -29,15 +29,10 @@ def test_eval_retrieval_prints_the_headline_metrics(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with (
-        patch("rag.cli.QdrantStore"),
-        patch("rag.cli.Embedder"),
-        patch("rag.cli.CrossEncoderReranker"),
-        patch("rag.cli.HybridRetriever") as retriever_cls,
-    ):
+    with patch("rag.cli_eval.build_retriever") as build:
         retriever = MagicMock()
         retriever.search.return_value = []
-        retriever_cls.return_value = retriever
+        build.return_value = retriever
 
         result = runner.invoke(app, ["eval", "retrieval", "--golden", str(golden)])
 
