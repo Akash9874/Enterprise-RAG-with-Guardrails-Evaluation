@@ -66,6 +66,9 @@ dev = [
     "types-pyyaml",
     "psutil>=7.2.2",
 ]
+# The Streamlit demo (FR-U1). +17 packages (pandas, pyarrow, altair …), so the API, CI and
+# the eval harness never install it: `uv sync --group ui`.
+ui = ["streamlit>=1.40"]
 
 [build-system]
 requires = ["hatchling"]
@@ -103,6 +106,8 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `ui/` is not a package under src/; its pure view helpers are tested as `ui.view`.
+pythonpath = ["."]
 markers = [
     "slow: loads a real model or hits a live service",
     "integration: requires Qdrant or Ollama running",
