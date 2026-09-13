@@ -3,6 +3,7 @@ from pathlib import Path
 from ui.view import (
     VERDICT_COLOURS,
     citation_panels,
+    format_ms,
     load_presets,
     parse_sse,
     verdict_scale,
@@ -27,6 +28,30 @@ def test_verdict_scale_lists_only_verdicts_present_on_the_chart() -> None:
 
 def test_verdict_scale_of_no_rows_is_empty() -> None:
     assert verdict_scale([]) == ([], [])
+
+
+def test_format_ms_keeps_sub_millisecond_rails_visible() -> None:
+    # A T0 block takes ~0.02 ms. Rounding to whole ms printed "0 ms of rails", which reads as
+    # a missing measurement and hides the microsecond cost the tiering exists to show.
+    assert format_ms(0.024) == "0.02 ms"
+    assert format_ms(0.753) == "0.75 ms"
+
+
+def test_format_ms_floors_near_zero_instead_of_printing_zero() -> None:
+    assert format_ms(0.004) == "< 0.01 ms"
+    assert format_ms(0.0) == "< 0.01 ms"
+
+
+def test_format_ms_whole_milliseconds_under_a_second() -> None:
+    assert format_ms(1.0) == "1 ms"
+    assert format_ms(249.3) == "249 ms"
+    assert format_ms(999.4) == "999 ms"
+
+
+def test_format_ms_switches_to_seconds_from_one_second() -> None:
+    # The groundedness rail costs ~43,000 ms in the container; seconds are what a reader parses.
+    assert format_ms(1000.0) == "1.0 s"
+    assert format_ms(42990.4) == "43.0 s"
 
 
 def test_parse_sse_yields_json_events_and_skips_noise() -> None:

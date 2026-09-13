@@ -34,6 +34,22 @@ def verdict_scale(rows: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
     return domain, [VERDICT_COLOURS[verdict] for verdict in domain]
 
 
+def format_ms(ms: float) -> str:
+    """Human latency: seconds from 1 s, whole ms under a second, two decimals under 1 ms.
+
+    Rounding everything to whole milliseconds printed "0 ms of rails" for a T0 block that took
+    ~0.02 ms. That read as a missing measurement, and hid the microsecond cost the tiering
+    exists to demonstrate.
+    """
+    if ms >= 1000:
+        return f"{ms / 1000:.1f} s"
+    if ms >= 1:
+        return f"{ms:.0f} ms"
+    if ms >= 0.01:
+        return f"{ms:.2f} ms"
+    return "< 0.01 ms"
+
+
 def api_url() -> str:
     return os.environ.get("RAG_UI_API_URL", "http://localhost:8000").rstrip("/")
 

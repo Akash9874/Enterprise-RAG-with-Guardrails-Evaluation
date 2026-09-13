@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT))  # streamlit puts ui/ on the path, not the repo ro
 from ui.view import (  # noqa: E402
     api_url,
     citation_panels,
+    format_ms,
     load_presets,
     parse_sse,
     verdict_scale,
@@ -58,7 +59,7 @@ def render_trace(trace: dict[str, Any]) -> None:
     escalated = " · escalated to T3" if trace.get("escalated") else ""
     st.markdown(
         f"**Guardrail trace** — final verdict `{verdict}` · "
-        f"{trace.get('total_latency_ms', 0):.0f} ms of rails{escalated}"
+        f"{format_ms(trace.get('total_latency_ms', 0))} of rails{escalated}"
     )
     domain, colours = verdict_scale(rows)
     chart = (
@@ -80,7 +81,7 @@ def render_trace(trace: dict[str, Any]) -> None:
         score = "—" if row["score"] is None else f"{row['score']:.3f}"
         label = (
             f"{row['tier']} · {row['rail']} → {row['verdict']} "
-            f"(score {score}, {row['latency_ms']:.0f} ms)"
+            f"(score {score}, {format_ms(row['latency_ms'])})"
         )
         with st.expander(label):
             st.json(row["evidence"])
