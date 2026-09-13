@@ -29,6 +29,9 @@ dependencies = [
     # Declared directly only so [tool.uv.sources] can route it: uv sources apply to direct
     # dependencies, and PyPI's Linux wheel pulls 15 CUDA packages this project cannot use.
     "torch>=2.5",
+    # The PII rail pins en_core_web_sm (ADR-018). It was installed by hand and absent from
+    # uv.lock, so a fresh `uv sync` removed it; a direct reference makes installs reproducible.
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
 ]
 
 [project.scripts]
@@ -56,6 +59,9 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true   # en-core-web-sm is published only as a GitHub release wheel
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rag"]
