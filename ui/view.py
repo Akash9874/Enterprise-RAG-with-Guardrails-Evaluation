@@ -10,6 +10,29 @@ from typing import Any
 
 import yaml
 
+# One colour per verdict, in severity order. "block" is near-black on purpose: it was a red
+# indistinguishable from "refuse", so a blocked request read as refused in the legend.
+VERDICT_COLOURS: dict[str, str] = {
+    "pass": "#2e7d32",
+    "redact": "#1565c0",
+    "hedge": "#ef6c00",
+    "refuse": "#c62828",
+    "block": "#212121",
+    "skipped": "#9e9e9e",
+    "error": "#6a1b9a",
+}
+
+
+def verdict_scale(rows: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    """Colour-scale domain and range for only the verdicts on the chart.
+
+    A fixed seven-entry legend was clipped to four in the UI, hiding "block" on a chart whose
+    only bar was a block. Listing just the verdicts present keeps the legend truthful.
+    """
+    present = {row["verdict"] for row in rows}
+    domain = [verdict for verdict in VERDICT_COLOURS if verdict in present]
+    return domain, [VERDICT_COLOURS[verdict] for verdict in domain]
+
 
 def api_url() -> str:
     return os.environ.get("RAG_UI_API_URL", "http://localhost:8000").rstrip("/")

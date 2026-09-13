@@ -14,19 +14,17 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))  # streamlit puts ui/ on the path, not the repo root
 
-from ui.view import api_url, citation_panels, load_presets, parse_sse, waterfall_rows  # noqa: E402
+from ui.view import (  # noqa: E402
+    api_url,
+    citation_panels,
+    load_presets,
+    parse_sse,
+    verdict_scale,
+    waterfall_rows,
+)
 
 API = api_url()
 PRESETS = dict(load_presets(ROOT / "eval" / "adversarial" / "suite.yaml"))
-VERDICT_COLOURS = {
-    "pass": "#2e7d32",
-    "redact": "#1565c0",
-    "hedge": "#ef6c00",
-    "refuse": "#c62828",
-    "block": "#b71c1c",
-    "skipped": "#9e9e9e",
-    "error": "#6a1b9a",
-}
 
 st.set_page_config(page_title="Enterprise RAG", page_icon="🛡️", layout="wide")
 
@@ -62,6 +60,7 @@ def render_trace(trace: dict[str, Any]) -> None:
         f"**Guardrail trace** — final verdict `{verdict}` · "
         f"{trace.get('total_latency_ms', 0):.0f} ms of rails{escalated}"
     )
+    domain, colours = verdict_scale(rows)
     chart = (
         alt.Chart(alt.Data(values=[{k: v for k, v in r.items() if k != "evidence"} for r in rows]))
         .mark_bar()
@@ -71,7 +70,7 @@ def render_trace(trace: dict[str, Any]) -> None:
             y=alt.Y("rail:N", sort=None, title=None),
             color=alt.Color(
                 "verdict:N",
-                scale=alt.Scale(domain=list(VERDICT_COLOURS), range=list(VERDICT_COLOURS.values())),
+                scale=alt.Scale(domain=domain, range=colours),
             ),
             tooltip=["stage:N", "tier:N", "rail:N", "verdict:N", "score:Q", "latency_ms:Q"],
         )

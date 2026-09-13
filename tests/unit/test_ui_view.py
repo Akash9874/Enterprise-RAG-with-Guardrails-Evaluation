@@ -1,6 +1,32 @@
 from pathlib import Path
 
-from ui.view import citation_panels, load_presets, parse_sse, waterfall_rows
+from ui.view import (
+    VERDICT_COLOURS,
+    citation_panels,
+    load_presets,
+    parse_sse,
+    verdict_scale,
+    waterfall_rows,
+)
+
+
+def test_block_and_refuse_are_visually_distinct_colours() -> None:
+    # They were #b71c1c and #c62828 - two reds a reader could not tell apart, so a blocked
+    # request read as "refuse" in the legend. The headline verdict must be unambiguous.
+    assert VERDICT_COLOURS["block"] != VERDICT_COLOURS["refuse"]
+    assert not VERDICT_COLOURS["block"].lower().startswith(("#b7", "#c6", "#d3"))
+
+
+def test_verdict_scale_lists_only_verdicts_present_on_the_chart() -> None:
+    # A seven-entry legend was clipped to four, hiding "block" on a one-bar block chart.
+    rows = [{"verdict": "pass"}, {"verdict": "block"}, {"verdict": "pass"}]
+    domain, colours = verdict_scale(rows)
+    assert domain == ["pass", "block"]  # canonical order, deduplicated
+    assert colours == [VERDICT_COLOURS["pass"], VERDICT_COLOURS["block"]]
+
+
+def test_verdict_scale_of_no_rows_is_empty() -> None:
+    assert verdict_scale([]) == ([], [])
 
 
 def test_parse_sse_yields_json_events_and_skips_noise() -> None:
