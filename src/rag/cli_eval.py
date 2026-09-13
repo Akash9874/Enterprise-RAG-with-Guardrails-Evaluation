@@ -16,9 +16,11 @@ from rag.eval.golden import GoldenQuery, load_golden, stale_chunk_refs
 from rag.eval.provenance import collect_provenance
 from rag.eval.runner import run_tier_a
 from rag.eval.scorers import HHEMSupportScorer, TokenEmbedder
+from rag.eval.synthesize import dump_golden, synthesize
 from rag.guardrails.factory import build_pipeline, cached_centroid_provider
 from rag.guardrails.policy import load_policy
 from rag.index.qdrant_store import QdrantStore
+from rag.index.schema import payload_to_chunk
 from rag.models.embedder import Embedder
 from rag.retrieval.hybrid import HybridRetriever
 from rag.retrieval.rerank import CrossEncoderReranker
@@ -127,6 +129,33 @@ def eval_generation(
     path = Path(golden) if golden else project_path(settings.eval.golden_path)
     queries = load_golden(path)
     print_tier_b(build_tier_b(settings, queries, progress=verbose))
+
+
+@eval_app.command("synthesize")
+def eval_synthesize(
+    n: int = typer.Option(25, help="Accepted questions to produce."),
+    seed: int = typer.Option(7, help="Sampling seed — record it in the commit message."),
+    min_tokens: int = typer.Option(40, help="Skip chunks too short to ask about."),
+    out: str = typer.Option(
+        "eval/golden/synthetic.draft.yaml", help="Draft file for human review."
+    ),
+) -> None:
+    """Draft synthetic golden queries. Never writes the golden set directly."""
+    from rag.api.deps import get_llm
+
+    settings = get_settings()
+    chunks = [payload_to_chunk(p) for p in QdrantStore(settings).iter_payloads()]
+    existing = load_golden(project_path(settings.eval.golden_path))
+    id_start = 1 + sum(1 for q in existing if q.provenance == "synthetic")
+    queries, rejected = synthesize(
+        chunks, get_llm(), n=n, seed=seed, min_tokens=min_tokens, id_start=id_start
+    )
+    target = project_path(out)
+    target.write_text(dump_golden(queries), encoding="utf-8")
+    console.print(f"[green]{len(queries)} drafted[/green], {rejected} rejected -> {target}")
+    console.print(
+        "[yellow]Spot-check at least 20% and set spot_checked: true before merging.[/yellow]"
+    )
 
 
 @eval_app.command("adversarial")
