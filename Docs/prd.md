@@ -311,7 +311,7 @@ never pooled into a single headline number.
 |---|---|
 | FR-A1 | `POST /query` — `{query, top_k?, rerank?, include_trace?, stream?}` → answer, citations, trace. |
 | FR-A2 | `GET /health` — liveness plus per-dependency readiness (Qdrant, Ollama, model registry). |
-| FR-A3 | `POST /ingest` — trigger ingestion for a configured source; returns a job summary. |
+| FR-A3 | `POST /ingest` — trigger ingestion for a configured source; returns a job summary. `source` is a key in `settings.ingest.sources`, never a filesystem path: a path parameter would let any caller index an arbitrary directory and read it back out through `/query`. |
 | FR-A4 | `GET /corpus/stats` — chunk counts by language, quarantine count, index size, last-ingest time. |
 | FR-A5 | OpenAPI schema auto-generated; `/docs` is a usable demo surface on its own. |
 | FR-A6 | Errors return RFC-7807 problem details. Guardrail refusals are **HTTP 200 with a refusal verdict in the trace**, not HTTP errors — a refusal is a successful, correct outcome. |
@@ -415,6 +415,27 @@ class Answer:
     trace: GuardrailTrace | None
     stage_timings: dict[str, float]
     model_info: dict[str, str]
+
+
+class IngestSummary:  # POST /ingest response, and the last-ingest record (FR-A3, FR-I9)
+    source: str  # a configured source key, never a path
+    files: int
+    chunks: int
+    upserted: int
+    skipped: int
+    quarantined: int | None  # None when the scan was skipped or failed
+    scan: Literal["ok", "skipped", "failed"]
+    duration_s: float
+    finished_at: datetime
+
+
+class CorpusStats:  # GET /corpus/stats (FR-A4)
+    collection: str
+    exists: bool
+    points: int
+    by_language: dict[str, int]
+    quarantined: int
+    last_ingest: IngestSummary | None
 ```
 
 ---

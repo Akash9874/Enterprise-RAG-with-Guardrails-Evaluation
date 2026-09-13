@@ -19,8 +19,7 @@ from rag.guardrails.factory import build_pipeline, cached_centroid_provider
 from rag.guardrails.policy import load_policy
 from rag.guardrails.rails.injection import InjectionRail
 from rag.index.qdrant_store import QdrantStore
-from rag.ingest.enrich import SCAN_FAILED, quarantine_chunks
-from rag.ingest.pipeline import build_chunks
+from rag.ingest.service import run_ingest, save_summary
 from rag.models.embedder import Embedder
 
 app = typer.Typer(help="Enterprise RAG — ingest, retrieve, evaluate.")
@@ -46,30 +45,33 @@ def ingest(
     ),
 ) -> None:
     settings = get_settings()
-    chunks, stats = build_chunks(Path(source))
-
-    quarantined = 0
+    scorer = None
+    threshold = 0.8
     if scan:
         policy = load_policy().for_rail("injection_input")
-        rail = InjectionRail(policy)
-        quarantined = quarantine_chunks(
-            chunks, scorer=rail.score_texts, threshold=policy.t_block or 0.8
-        )
+        scorer = InjectionRail(policy).score_texts
+        threshold = policy.t_block or 0.8
 
-    store = QdrantStore(settings)
-    store.ensure_collection(recreate=recreate)
-    upserted = store.upsert_chunks(chunks, Embedder(settings))
+    summary = run_ingest(
+        Path(source),
+        store=QdrantStore(settings),
+        embedder=Embedder(settings),
+        recreate=recreate,
+        scorer=scorer,
+        threshold=threshold,
+    )
+    save_summary(summary, project_path(settings.ingest.state_path))
 
     console.print(
-        f"[green]Ingested[/green] {stats.files} files -> {stats.chunks} chunks "
-        f"({upserted} upserted, {stats.skipped} skipped) in {stats.duration_s:.1f}s"
+        f"[green]Ingested[/green] {summary.files} files -> {summary.chunks} chunks "
+        f"({summary.upserted} upserted, {summary.skipped} skipped) in {summary.duration_s:.1f}s"
     )
-    if not scan:
+    if summary.scan == "skipped":
         console.print("[yellow]Injection scan skipped[/yellow] (--no-scan)")
-    elif quarantined == SCAN_FAILED:
+    elif summary.scan == "failed":
         console.print("[red]Injection scan failed[/red] — chunks indexed without quarantine")
     else:
-        console.print(f"[dim]Injection scan: {quarantined} chunk(s) quarantined[/dim]")
+        console.print(f"[dim]Injection scan: {summary.quarantined} chunk(s) quarantined[/dim]")
 
 
 @app.command()

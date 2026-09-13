@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -108,3 +109,30 @@ class Answer(BaseModel):
     trace: GuardrailTrace | None = None
     stage_timings: dict[str, float] = Field(default_factory=dict)
     model_info: dict[str, str] = Field(default_factory=dict)
+
+
+class IngestSummary(BaseModel):
+    """What one ingest run did (FR-I9, FR-A3). Crosses ingest -> api/cli."""
+
+    source: str
+    files: int
+    chunks: int
+    upserted: int
+    skipped: int
+    # None when the injection scan was skipped or failed, so "0 quarantined" always
+    # means the scan actually ran and found nothing.
+    quarantined: int | None = None
+    scan: Literal["ok", "skipped", "failed"] = "skipped"
+    duration_s: float
+    finished_at: datetime
+
+
+class CorpusStats(BaseModel):
+    """GET /corpus/stats (FR-A4)."""
+
+    collection: str
+    exists: bool
+    points: int
+    by_language: dict[str, int] = Field(default_factory=dict)
+    quarantined: int = 0
+    last_ingest: IngestSummary | None = None

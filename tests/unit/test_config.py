@@ -16,6 +16,16 @@ def test_golden_path_is_configured() -> None:
     assert Settings().eval.golden_path == "eval/golden/golden.yaml"
 
 
+def test_ingest_source_can_be_overridden_by_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # docker-compose points the "self" source at the read-only /corpus mount this way.
+    monkeypatch.setenv("RAG_INGEST__SOURCES__SELF", "/corpus")
+    assert load_settings().ingest.sources["self"] == "/corpus"
+
+
+def test_ingest_sources_are_keys_not_paths_by_default() -> None:
+    assert Settings().ingest.sources == {"self": "."}
+
+
 def test_defaults_apply_when_no_yaml_present(tmp_path: Path) -> None:
     settings = load_settings(config_path=tmp_path / "missing.yaml")
     assert settings.retrieval.k_final == 5

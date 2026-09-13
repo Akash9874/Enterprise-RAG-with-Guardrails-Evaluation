@@ -93,6 +93,13 @@ class EvalSettings(BaseModel):
     )
 
 
+class IngestSettings(BaseModel):
+    # POST /ingest accepts one of these *keys*, never a filesystem path: a path parameter
+    # would let any caller index an arbitrary directory and read it back out.
+    sources: dict[str, str] = Field(default_factory=lambda: {"self": "."})
+    state_path: str = ".rag_state/last_ingest.json"
+
+
 class JudgeSettings(BaseModel):
     # Tier C judge: any OpenAI-compatible endpoint. The default is local Ollama, so Tier C
     # costs nothing (NFR-9). A free-tier hosted judge is an env override:
@@ -115,6 +122,7 @@ class Settings(BaseSettings):
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
     eval: EvalSettings = Field(default_factory=EvalSettings)
     judge: JudgeSettings = Field(default_factory=JudgeSettings)
+    ingest: IngestSettings = Field(default_factory=IngestSettings)
 
     @classmethod
     def settings_customise_sources(

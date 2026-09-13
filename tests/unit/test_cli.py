@@ -14,7 +14,12 @@ runner = CliRunner()
 def test_ingest_reports_counts(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
 
-    with patch("rag.cli.QdrantStore") as store_cls, patch("rag.cli.Embedder"):
+    with (
+        patch("rag.cli.QdrantStore") as store_cls,
+        patch("rag.cli.Embedder"),
+        # Never write .rag_state/ into the repository from a unit test.
+        patch("rag.cli.save_summary"),
+    ):
         store = MagicMock()
         store.upsert_chunks.return_value = 2
         store_cls.return_value = store

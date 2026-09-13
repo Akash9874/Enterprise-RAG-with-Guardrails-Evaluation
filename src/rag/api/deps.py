@@ -6,6 +6,8 @@ until first use, so importing this module loads no weights (PRD NFR-4).
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from functools import lru_cache
 
 from rag.config import get_settings
@@ -14,6 +16,7 @@ from rag.guardrails.factory import build_pipeline, cached_centroid_provider
 from rag.guardrails.guarded import GuardedAnswerer
 from rag.guardrails.pipeline import GuardrailPipeline
 from rag.guardrails.policy import GuardrailPolicy, load_policy
+from rag.guardrails.rails.injection import InjectionRail
 from rag.index.qdrant_store import QdrantStore
 from rag.models.embedder import Embedder
 from rag.models.llm import OllamaClient
@@ -67,3 +70,24 @@ def get_pipeline() -> GuardrailPipeline:
 @lru_cache(maxsize=1)
 def get_guarded_answerer() -> GuardedAnswerer:
     return GuardedAnswerer(get_answerer(), get_pipeline())
+
+
+@dataclass(frozen=True)
+class InjectionScorer:
+    """The ingest-time scan, handed to `run_ingest` as a plain function (FR-I7)."""
+
+    score_texts: Callable[[list[str]], list[float]]
+    threshold: float
+
+
+@lru_cache(maxsize=1)
+def get_embedder() -> Embedder:
+    return Embedder(get_settings())
+
+
+@lru_cache(maxsize=1)
+def get_injection_scorer() -> InjectionScorer:
+    policy = get_policy().for_rail("injection_input")
+    return InjectionScorer(
+        score_texts=InjectionRail(policy).score_texts, threshold=policy.t_block or 0.8
+    )

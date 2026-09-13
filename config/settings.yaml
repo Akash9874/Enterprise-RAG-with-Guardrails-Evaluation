@@ -33,6 +33,12 @@ ollama:
   host: http://localhost:11434
   temperature: 0.0         # deterministic; required for reproducible eval
 
+ingest:
+  # POST /ingest takes one of these keys, never a path (an arbitrary-directory read primitive).
+  sources:
+    self: .
+  state_path: .rag_state/last_ingest.json
+
 judge:
   # Tier C only (opt-in, `uv sync --extra judge`). Any OpenAI-compatible endpoint; the
   # default is local Ollama, so Tier C costs nothing (NFR-9). Override with RAG_JUDGE__*.
