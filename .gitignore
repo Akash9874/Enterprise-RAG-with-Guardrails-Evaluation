@@ -14,5 +14,7 @@ eval/golden/*.draft.yaml
 .env
 # Last ingest summary served by GET /corpus/stats
 .rag_state/
+# Browser automation artefacts (screenshots are copied into Docs/images deliberately)
+.playwright-mcp/
 # CI model cache (HF_HOME / FASTEMBED_CACHE_PATH in the retrieval-gate job)
 .cache/

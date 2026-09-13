@@ -14,3 +14,56 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  api:
+    build: .
+    image: enterprise-rag:local
+    ports:
+      - "8000:8000"
+    environment:
+      RAG_QDRANT__URL: http://qdrant:6333
+      # Native Ollama on the host: the generator is already pulled there, and Ollama inside
+      # Docker Desktop runs CPU-only in the WSL VM (ADR-028).
+      RAG_OLLAMA__HOST: http://host.docker.internal:11434
+      RAG_INGEST__SOURCES__SELF: /corpus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./:/corpus:ro                 # this repository is the corpus
+      - models:/models                # HF + fastembed cache, warmed once by --warm
+      - rag_state:/app/.rag_state     # last ingest summary for /corpus/stats
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      # "Healthy" means every dependency is ready, not merely that the process is up.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8000/health', timeout=2).json()['status'] == 'ok' else 1)"
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  ui:
+    image: enterprise-rag:local
+    command:
+      - streamlit
+      - run
+      - ui/app.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --server.headless=true
+    ports:
+      - "8501:8501"
+    environment:
+      RAG_UI_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  models:
+  rag_state:
