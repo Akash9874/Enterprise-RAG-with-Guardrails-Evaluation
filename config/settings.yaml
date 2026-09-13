@@ -4,6 +4,8 @@ models:
   embedder: BAAI/bge-small-en-v1.5
   reranker: cross-encoder/ms-marco-MiniLM-L-6-v2
   generator: qwen2.5:3b-instruct-q4_K_M
+  # Tier B BERTScore. 268 MB; bert-score's deberta-xlarge-mnli is 3,036 MB (ADR-024).
+  bertscore: distilbert/distilbert-base-uncased
   registry_max_resident: 4
 
 retrieval:
@@ -33,3 +35,4 @@ ollama:
 
 eval:
   golden_path: eval/golden/golden.yaml
+  bertscore_layer: 5         # bert-score's default num_layers for distilbert-base-uncased

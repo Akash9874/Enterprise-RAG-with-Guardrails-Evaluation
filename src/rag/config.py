@@ -46,6 +46,8 @@ class ModelSettings(BaseModel):
     generator: str = "qwen2.5:3b-instruct-q4_K_M"
     groundedness: str = "vectara/hallucination_evaluation_model"
     injection: str = "protectai/deberta-v3-base-prompt-injection-v2"
+    # Tier B BERTScore. 268 MB; bert-score's deberta-xlarge-mnli is 3,036 MB (ADR-024).
+    bertscore: str = "distilbert/distilbert-base-uncased"
     registry_max_resident: int = 4
 
 
@@ -75,6 +77,8 @@ class OllamaSettings(BaseModel):
 
 class EvalSettings(BaseModel):
     golden_path: str = "eval/golden/golden.yaml"
+    # bert-score's default num_layers for distilbert-base-uncased.
+    bertscore_layer: int = 5
 
 
 class Settings(BaseSettings):

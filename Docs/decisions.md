@@ -716,3 +716,48 @@ retrieval. Two consequences:
 **Also.** The golden file is renamed `golden.yaml` and hashed with line endings normalised, so a
 CRLF checkout and the LF CI runner agree. Stale chunk references now fail the run (exit 2)
 instead of scoring as misses.
+
+---
+
+## ADR-024 — BERTScore in-house on distilbert; Tier B groundedness per cited chunk
+
+**Context.** FR-E2 asks for BERTScore against golden answers. The `bert-score` package adds
+**11 dependencies** (matplotlib, pandas, …) to the resolved set for what is a greedy cosine match
+over transformer hidden states. Its recommended model, `microsoft/deberta-xlarge-mnli`, is a
+**3,036 MB** download (measured from the Hugging Face API, 2026-09-13).
+
+**Decision.** Implement the metric in `rag.eval.metrics.generation.bertscore_f1` (numpy, ~15
+lines) over `distilbert/distilbert-base-uncased` hidden layer 5 — the model and layer
+`bert-score` itself uses by default for that checkpoint. 268 MB download, **+0.14 GB resident**
+in the eval process (measured). The API process never loads it.
+
+**Parity, measured** in a throwaway `uv run --with bert-score` environment, five pairs,
+`idf=False`, no baseline rescaling:
+
+| pair | ours | bert-score | \|Δ\| |
+|---|---|---|---|
+| RRF paraphrase | 0.85318 | 0.85318 | 0.000000 |
+| idempotency paraphrase | 0.90731 | 0.90755 | 0.000243 |
+| reranker paraphrase | 0.82685 | 0.82685 | 0.000000 |
+| unrelated | 0.69862 | 0.69862 | 0.000000 |
+| identical | 1.00000 | 1.00000 | 0.000000 |
+
+Max |ΔF1| = **0.000243**, inside the 1e-3 tolerance set before running it.
+
+**Rejected.** The `bert-score` package: identical numbers for 11 more packages. The
+deberta-xlarge-mnli model: best human correlation in the BERTScore paper, 11× the download and
+most of the remaining model budget. **Consequence stated plainly:** distilbert scores are not
+comparable to published BERTScore figures that use other models. They are comparable run-to-run,
+which is what a regression harness needs.
+
+**Also decided — Tier B metric definitions.**
+
+- *Groundedness* scores each sentence against each **cited** chunk separately and keeps the max.
+  This keeps `eval/CLAUDE.md`'s cited-chunk definition while never concatenating premises, which
+  silently truncated at HHEM's 512-token window (ADR-021). The *rail* keeps its any-retrieved-chunk
+  definition. The two differ on purpose: the rail asks "is this hallucinated?", the metric asks
+  "did the citations carry it?".
+- *Citation precision* is `None`, not 0, for an answer with no citations; 0/0 is undefined.
+- *Citation recall* treats every sentence as a claim. Stated simplification.
+- A citation marker placed after the full stop attaches to the following sentence. Known
+  limitation of sentence-level scoring.

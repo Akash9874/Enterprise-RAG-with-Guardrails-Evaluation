@@ -435,6 +435,7 @@ evidence. The README reproduces this table with measured numbers once the harnes
 | Eval framework | **Custom Tier A/B, plus Ragas for Tier C only** | Ragas alone would make every metric LLM-dependent and impossible to run in CI. TruLens dropped as fully overlapping. |
 | Citation enforcement | **Post-hoc marker validation** | Constrained decoding — needs logit-level control Ollama does not expose, and cannot catch an in-range but unsupported citation anyway. See ADR-013. |
 | Python | **3.12**, pinned via `uv` | 3.14 is ahead of `spacy` / `presidio` / torch wheel availability. |
+| BERTScore | **In-house over distilbert-base-uncased L5** | `bert-score` package — 11 extra dependencies for ~15 lines of numpy, identical to 2.4e-4. `deberta-xlarge-mnli` — 3.0 GB download. See ADR-024. |
 
 ---
 
