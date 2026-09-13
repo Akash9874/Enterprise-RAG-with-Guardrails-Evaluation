@@ -21,10 +21,40 @@ dependencies = [
     "langchain-text-splitters>=0.3",
     "pathspec>=0.12",
     "rich>=13.9",
+    "presidio-analyzer>=2.2",
+    "presidio-anonymizer>=2.2",
+    "transformers<5",
+    "numpy>=1.26",
+    "jinja2>=3.1",
+    # Declared directly only so [tool.uv.sources] can route it: uv sources apply to direct
+    # dependencies, and PyPI's Linux wheel pulls 15 CUDA packages this project cannot use.
+    "torch>=2.5",
+    # The PII rail pins en_core_web_sm (ADR-018). It was installed by hand and absent from
+    # uv.lock, so a fresh `uv sync` removed it; a direct reference makes installs reproducible.
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+]
+
+[project.optional-dependencies]
+# Tier C only. Ragas adds 38 packages (langchain, langgraph x4, sqlalchemy, openai …) —
+# the stack PRD §10 rejected for orchestration — so it is never a default dependency (ADR-027).
+judge = [
+    "ragas>=0.4,<0.5",
+    # ragas 0.4.3 leaves langchain-community unpinned but imports
+    # langchain_community.chat_models.vertexai, which 0.4.x removed. Measured: 0.4.2 fails
+    # at import, 0.3.31 imports cleanly alongside langchain-core 1.6.3 (ADR-027).
+    "langchain-community<0.4",
 ]
 
 [project.scripts]
 rag = "rag.cli:app"
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [dependency-groups]
 dev = [
@@ -34,11 +64,18 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "types-pyyaml",
+    "psutil>=7.2.2",
 ]
+# The Streamlit demo (FR-U1). +17 packages (pandas, pyarrow, altair …), so the API, CI and
+# the eval harness never install it: `uv sync --group ui`.
+ui = ["streamlit>=1.40"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true   # en-core-web-sm is published only as a GitHub release wheel
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rag"]
@@ -62,8 +99,15 @@ python_version = "3.12"
 strict = true
 files = ["src"]
 
+[[tool.mypy.overrides]]
+# The judge extra is opt-in; CI type-checks without it installed.
+module = ["ragas.*", "openai.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `ui/` is not a package under src/; its pure view helpers are tested as `ui.view`.
+pythonpath = ["."]
 markers = [
     "slow: loads a real model or hits a live service",
     "integration: requires Qdrant or Ollama running",

@@ -44,6 +44,14 @@ def test_paths_are_posix_relative_to_root(tmp_path: Path) -> None:
     assert [f.path for f in load_repository(tmp_path)] == ["src/pkg/mod.py"]
 
 
+def test_eval_fixtures_are_never_indexed(tmp_path: Path) -> None:
+    # Golden answers and adversarial payloads must never be retrievable context.
+    _write(tmp_path, "eval/golden/golden.yaml", "- id: q1\n")
+    _write(tmp_path, "eval/adversarial/suite.yaml", "- id: adv\n")
+    _write(tmp_path, "src/a.py", "x = 1\n")
+    assert [f.path for f in load_repository(tmp_path)] == ["src/a.py"]
+
+
 def test_skips_files_that_are_not_valid_utf8(tmp_path: Path) -> None:
     _write(tmp_path, "good.py", "x = 1")
     (tmp_path / "bad.py").write_bytes(b"\xff\xfe\x00binary")

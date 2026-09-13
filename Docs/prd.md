@@ -94,18 +94,26 @@ document traces back to one of them.
 
 ### 4.1 Resident memory budget
 
-| Component | Budget |
-|---|---|
-| Ollama + Qwen2.5-3B-Instruct Q4_K_M | 2.00 GB |
-| torch / transformers runtime | 0.80 GB |
-| HHEM-2.1-Open (groundedness) | 0.40 GB |
-| deberta-v3 injection classifier | 0.40 GB |
-| Qdrant container | 0.30 GB |
-| Presidio + spaCy `en_core_web_sm` | 0.30 GB |
-| FastAPI + application | 0.30 GB |
-| bge-small-en-v1.5 embedder | 0.15 GB |
-| ms-marco-MiniLM-L-6-v2 reranker | 0.10 GB |
-| **Total** | **≈ 4.75 GB** |
+Estimated at design time, then **measured on 2026-09-12** once every model had been run
+(ADR-018). The measured column is the increment each component adds when loaded in sequence
+into one process, so they share a single torch runtime.
+
+| Component | Budgeted | Measured | Note |
+|---|---|---|---|
+| Ollama + Qwen2.5-3B-Instruct Q4_K_M | 2.00 GB | ~2.00 GB | separate process |
+| torch / transformers runtime + app | 1.10 GB | 0.04 GB | counted inside the models below |
+| bge-small-en-v1.5 embedder | 0.15 GB | 0.47 GB | includes the torch runtime it loads first |
+| Presidio + spaCy `en_core_web_sm` | 0.30 GB | 0.09 GB | **0.61 GB if `en_core_web_sm` is not pinned** |
+| deberta-v3 injection classifier | 0.40 GB | 0.45 GB | |
+| HHEM-2.1-Open (groundedness) | 0.40 GB | 0.38 GB | |
+| Qdrant container | 0.30 GB | ~0.30 GB | container |
+| ms-marco-MiniLM-L-6-v2 reranker | 0.10 GB | — | disabled by default (ADR-003) |
+| **Total** | **≈ 4.75 GB** | **≈ 3.72 GB** | 1.42 GB in-process + Ollama + Qdrant |
+
+**NFR-4 passes with room to spare.** The one trap: Presidio's default `AnalyzerEngine()` loads
+`en_core_web_lg` (382 MB) rather than `sm`, which costs 1.09 GB resident and 102 ms per call
+against 0.48 GB and 7 ms for the pinned configuration. Pinning the model and scoping the entity
+list are both load-bearing and both asserted in tests.
 
 Encoder models are **lazily loaded** through a registry with LRU eviction, so steady-state
 residency is typically lower. Exceeding 6 GB is a defect (NFR-4).
@@ -258,11 +266,11 @@ The pipeline is the project's headline feature. Implementation detail lives in
 | Rail | Tier | Model / method | Budget | Action on trip |
 |---|---|---|---|---|
 | Input heuristics | T0 | Regex patterns, denylist, length / encoding checks | < 1 ms | block |
-| PII (input) | T0 | Presidio + spaCy | ~30 ms | redact or block |
-| Prompt injection | T1 | `deberta-v3-base-prompt-injection-v2` | ~40 ms | block |
+| PII (input) | T0 | Presidio + spaCy | ~30 ms (**measured 7 ms**) | redact or block |
+| Prompt injection | T1 | `deberta-v3-base-prompt-injection-v2` | ~40 ms (**measured 120 ms**) | block |
 | Topicality | T1 | Cosine distance to corpus embedding centroid | ~10 ms | refuse (out of scope) |
 | PII leak (output) | T0 | Presidio re-scan of generated text | ~30 ms | redact |
-| Groundedness | T2 | HHEM-2.1-Open, per answer-sentence vs cited chunks | ~150 ms | hedge, repair, or refuse |
+| Groundedness | T2 | HHEM-2.1-Open, per answer-sentence vs **each retrieved chunk, max** (ADR-021) | ~150 ms (**measured ~14 s per typical answer**: ~586 ms per pair × sentences × chunks — ADR-029) | hedge, repair, or refuse |
 | Groundedness verify | T3 | LLM self-check — escalation band only | ~2–4 s | final verdict |
 
 The topicality rail reuses the retrieval embedder, so it adds no model residency.
@@ -303,7 +311,7 @@ never pooled into a single headline number.
 |---|---|
 | FR-A1 | `POST /query` — `{query, top_k?, rerank?, include_trace?, stream?}` → answer, citations, trace. |
 | FR-A2 | `GET /health` — liveness plus per-dependency readiness (Qdrant, Ollama, model registry). |
-| FR-A3 | `POST /ingest` — trigger ingestion for a configured source; returns a job summary. |
+| FR-A3 | `POST /ingest` — trigger ingestion for a configured source; returns a job summary. `source` is a key in `settings.ingest.sources`, never a filesystem path: a path parameter would let any caller index an arbitrary directory and read it back out through `/query`. |
 | FR-A4 | `GET /corpus/stats` — chunk counts by language, quarantine count, index size, last-ingest time. |
 | FR-A5 | OpenAPI schema auto-generated; `/docs` is a usable demo surface on its own. |
 | FR-A6 | Errors return RFC-7807 problem details. Guardrail refusals are **HTTP 200 with a refusal verdict in the trace**, not HTTP errors — a refusal is a successful, correct outcome. |
@@ -334,7 +342,9 @@ never pooled into a single headline number.
 | NFR-9 | Paid-API calls in the default configuration | zero |
 
 Latency targets assume the reference hardware in §4, and are **asserted by the benchmark
-command**, not merely documented.
+command**, not merely documented. **Status, measured 2026-09-13: NFR-2 is not met.** `rag bench`
+times the input rails only (184 ms p50, within target); the output groundedness rail that NFR-2
+also counts costs ~14 s per typical answer on this CPU. See ADR-029.
 
 ---
 
@@ -357,6 +367,7 @@ class Chunk:
     pii_findings: list[PIIFinding]
     quarantined: bool
     content_hash: str
+    corpus_commit: str | None  # commit of the tree it was indexed from — eval provenance reads it back
 
 
 class Retrieved:
@@ -401,9 +412,34 @@ class Answer:
     text: str
     citations: list[Citation]
     retrieved: list[Retrieved]
+    refused: bool            # empty-retrieval refusal (FR-G6)
+    ungrounded: bool         # no citation survived enforcement (FR-G4)
+    stripped_markers: list[str]  # fabricated markers removed, recorded (FR-G4)
     trace: GuardrailTrace | None
     stage_timings: dict[str, float]
     model_info: dict[str, str]
+
+
+class IngestSummary:  # POST /ingest response, and the last-ingest record (FR-A3, FR-I9)
+    source: str  # a configured source key, never a path
+    files: int
+    chunks: int
+    upserted: int
+    skipped: int
+    quarantined: int | None  # None when the scan was skipped or failed
+    scan: Literal["ok", "skipped", "failed"]
+    duration_s: float
+    finished_at: datetime
+    corpus_commit: str  # of the source tree, asked of that tree (ADR-026)
+
+
+class CorpusStats:  # GET /corpus/stats (FR-A4)
+    collection: str
+    exists: bool
+    points: int
+    by_language: dict[str, int]
+    quarantined: int
+    last_ingest: IngestSummary | None
 ```
 
 ---
@@ -422,7 +458,12 @@ evidence. The README reproduces this table with measured numbers once the harnes
 | Guardrail engine | **Custom tiered pipeline** | **NeMo Guardrails** — its rails are LLM-call-based; four of them on CPU is 60+ s/query. **LlamaGuard** — 8B, exceeding the entire RAM budget. Both are documented as evaluated-and-rejected, with measurements. |
 | Groundedness | **HHEM-2.1-Open** (184M, Apache-2.0) | An LLM judge costs seconds per check and is non-deterministic. HHEM is purpose-built, deterministic, and doubles as an eval metric. |
 | Eval framework | **Custom Tier A/B, plus Ragas for Tier C only** | Ragas alone would make every metric LLM-dependent and impossible to run in CI. TruLens dropped as fully overlapping. |
+| Citation enforcement | **Post-hoc marker validation** | Constrained decoding — needs logit-level control Ollama does not expose, and cannot catch an in-range but unsupported citation anyway. See ADR-013. |
 | Python | **3.12**, pinned via `uv` | 3.14 is ahead of `spacy` / `presidio` / torch wheel availability. |
+| BERTScore | **In-house over distilbert-base-uncased L5** | `bert-score` package — 11 extra dependencies for ~15 lines of numpy, identical to 2.4e-4. `deberta-xlarge-mnli` — 3.0 GB download. See ADR-024. |
+| CI regression gate | **Tier A in CI, Tier B gated locally** | Tier B in CI — ~100 min of CPU generation per PR. Re-scoring committed answers — cannot see generation regressions. Scan-less CI — gates a different corpus. Proven: an injected regression failed the gate (Recall@5 0.661 → 0.464). See ADR-026. |
+| Tier C judge | **Ragas via opt-in `judge` extra**, local Ollama judge by default | Ragas as a core dependency — +38 packages incl. langchain / langgraph, and 0.4.3 needs `langchain-community<0.4` to import at all. Hand-rolled Ragas-style prompts — numbers comparable with no one else's. See ADR-027. |
+| Groundedness latency | **Keep per-chunk HHEM scoring; report the cost** (NFR-2 not met) | Score cited chunks only — ~1–4 passes instead of 20, but reopens ADR-021 and its thresholds. Run groundedness after the answer returns — loses the hedge before display. Shorter premises — reintroduces the truncation ADR-021 measured as destroying the signal. See ADR-029. |
 
 ---
 

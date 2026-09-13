@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Iterator
+from typing import Any, cast
 
 import structlog
 from qdrant_client import QdrantClient, models
 
 from rag.config import Settings
 from rag.contracts import Chunk
+from rag.gitinfo import UNKNOWN
 from rag.index.schema import (
     DENSE_VECTOR,
     SPARSE_VECTOR,
@@ -89,6 +91,80 @@ class QdrantStore:
             return 0
         result = self._client.count(collection_name=self._settings.qdrant.collection, exact=True)
         return int(result.count)
+
+    def iter_payloads(
+        self, fields: list[str] | None = None, batch_size: int = 256
+    ) -> Iterator[dict[str, Any]]:
+        """Every point's payload, paged. `fields` limits what Qdrant sends back."""
+        if not self.collection_exists():
+            return
+        offset: Any = None
+        while True:
+            points, offset = self._client.scroll(
+                collection_name=self._settings.qdrant.collection,
+                limit=batch_size,
+                offset=offset,
+                with_payload=fields if fields is not None else True,
+                with_vectors=False,
+            )
+            for point in points:
+                yield dict(point.payload or {})
+            if offset is None:
+                break
+
+    def chunk_ids(self) -> set[str]:
+        return {str(payload["chunk_id"]) for payload in self.iter_payloads(["chunk_id"])}
+
+    def corpus_commits(self) -> set[str]:
+        """Distinct commits stamped on indexed chunks; unstamped chunks count as unknown.
+
+        More than one value means the index mixes trees — stale chunks from an incremental
+        ingest, or chunks predating commit stamps — and provenance must say so (ADR-026).
+        """
+        return {
+            str(payload.get("corpus_commit") or UNKNOWN)
+            for payload in self.iter_payloads(["corpus_commit"])
+        }
+
+    def dense_centroid(self, batch_size: int = 256) -> list[float] | None:
+        """Mean of every indexed dense vector — the corpus's centre of mass.
+
+        The topicality rail compares a query against this to decide whether it is in
+        scope at all (ADR-015). Pages through the whole collection deliberately: a
+        centroid computed from the first batch would be a centroid of whatever Qdrant
+        happened to return first, which is not the same thing and would not look wrong.
+        """
+        if not self.collection_exists():
+            return None
+
+        total: list[float] | None = None
+        count = 0
+        offset: Any = None
+        while True:
+            points, offset = self._client.scroll(
+                collection_name=self._settings.qdrant.collection,
+                limit=batch_size,
+                offset=offset,
+                with_payload=False,
+                with_vectors=[DENSE_VECTOR],
+            )
+            for point in points:
+                vectors = point.vector or {}
+                raw = vectors[DENSE_VECTOR] if isinstance(vectors, dict) else vectors
+                # The client's union type covers sparse and multi-vector shapes too; a
+                # collection created by `vectors_config` only ever holds flat floats here.
+                vector = [float(v) for v in cast(list[Any], raw)]
+                if total is None:
+                    total = [0.0] * len(vector)
+                for i, value in enumerate(vector):
+                    total[i] += value
+                count += 1
+            if offset is None:
+                break
+
+        if total is None or count == 0:
+            return None
+        return [value / count for value in total]
 
     def hybrid_search(
         self,

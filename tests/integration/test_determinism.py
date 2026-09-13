@@ -1,8 +1,6 @@
-from pathlib import Path
-
 import pytest
 
-from rag.config import get_settings
+from rag.config import get_settings, project_path
 from rag.eval.golden import load_golden
 from rag.eval.runner import run_tier_a
 from rag.index.qdrant_store import QdrantStore
@@ -15,7 +13,7 @@ from rag.retrieval.rerank import CrossEncoderReranker
 @pytest.mark.slow
 def test_tier_a_is_reproducible_across_runs() -> None:
     settings = get_settings()
-    queries = load_golden(Path("eval/golden/retrieval.yaml"))
+    queries = load_golden(project_path(settings.eval.golden_path))
     retriever = HybridRetriever(
         settings, QdrantStore(settings), Embedder(settings), CrossEncoderReranker(settings)
     )

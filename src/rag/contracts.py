@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -41,7 +42,13 @@ class Chunk(BaseModel):
     token_count: int = 0
     pii_findings: list[PIIFinding] = Field(default_factory=list)
     quarantined: bool = False
+    # Injection probability recorded at ingest (FR-I7). Kept even when below the
+    # quarantine threshold, so the decision is reviewable rather than just a boolean.
+    injection_score: float | None = None
     content_hash: str = ""
+    # Commit of the tree this chunk was indexed from. Eval provenance is read back from these
+    # stamps, so a report describes the index it scored, not the eval process's checkout.
+    corpus_commit: str | None = None
 
 
 class Retrieved(BaseModel):
@@ -71,6 +78,16 @@ class RailResult(BaseModel):
     evidence: dict[str, Any] = Field(default_factory=dict)
 
 
+class RailContext(BaseModel):
+    """What a rail is allowed to see. Rails never mutate it; they return a RailResult."""
+
+    request_id: str
+    query: str
+    answer: str | None = None
+    retrieved: list[Retrieved] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
+
+
 class GuardrailTrace(BaseModel):
     request_id: str
     input_rails: list[RailResult] = Field(default_factory=list)
@@ -86,6 +103,40 @@ class Answer(BaseModel):
     text: str
     citations: list[Citation] = Field(default_factory=list)
     retrieved: list[Retrieved] = Field(default_factory=list)
+    # Set by generation, and distinct from the guardrail trace below: `refused` is the
+    # empty-retrieval refusal of FR-G6, `ungrounded` and `stripped_markers` are what
+    # citation enforcement (FR-G4) found. The output rails consume all three.
+    refused: bool = False
+    ungrounded: bool = False
+    stripped_markers: list[str] = Field(default_factory=list)
     trace: GuardrailTrace | None = None
     stage_timings: dict[str, float] = Field(default_factory=dict)
     model_info: dict[str, str] = Field(default_factory=dict)
+
+
+class IngestSummary(BaseModel):
+    """What one ingest run did (FR-I9, FR-A3). Crosses ingest -> api/cli."""
+
+    source: str
+    files: int
+    chunks: int
+    upserted: int
+    skipped: int
+    # None when the injection scan was skipped or failed, so "0 quarantined" always
+    # means the scan actually ran and found nothing.
+    quarantined: int | None = None
+    scan: Literal["ok", "skipped", "failed"] = "skipped"
+    duration_s: float
+    finished_at: datetime
+    corpus_commit: str = "unknown"
+
+
+class CorpusStats(BaseModel):
+    """GET /corpus/stats (FR-A4)."""
+
+    collection: str
+    exists: bool
+    points: int
+    by_language: dict[str, int] = Field(default_factory=dict)
+    quarantined: int = 0
+    last_ingest: IngestSummary | None = None

@@ -34,12 +34,24 @@ def _project_root() -> Path:
 DEFAULT_CONFIG_PATH = _project_root() / "config" / "settings.yaml"
 
 
+def project_path(value: str) -> Path:
+    """Resolve a configured path against the project root unless it is already absolute."""
+    path = Path(value)
+    return path if path.is_absolute() else _project_root() / path
+
+
 class ModelSettings(BaseModel):
     embedder: str = "BAAI/bge-small-en-v1.5"
     reranker: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     generator: str = "qwen2.5:3b-instruct-q4_K_M"
     groundedness: str = "vectara/hallucination_evaluation_model"
+    # HHEM loads with trust_remote_code, which executes Python fetched from the model repo.
+    # Pinned to the snapshot every groundedness threshold was measured on (ADR-021, ADR-028);
+    # an unpinned load would run whatever that repository serves on the day.
+    groundedness_revision: str = "8e4a2e6e96c708cc76c2344f7e4757df2515292c"
     injection: str = "protectai/deberta-v3-base-prompt-injection-v2"
+    # Tier B BERTScore. 268 MB; bert-score's deberta-xlarge-mnli is 3,036 MB (ADR-024).
+    bertscore: str = "distilbert/distilbert-base-uncased"
     registry_max_resident: int = 4
 
 
@@ -67,6 +79,40 @@ class OllamaSettings(BaseModel):
     temperature: float = 0.0
 
 
+class EvalSettings(BaseModel):
+    golden_path: str = "eval/golden/golden.yaml"
+    # bert-score's default num_layers for distilbert-base-uncased.
+    bertscore_layer: int = 5
+    # Written only by `rag eval promote-baseline` (FR-E8).
+    baseline_path: str = "eval/baselines/baseline.json"
+    reports_dir: str = "eval/reports"
+    # FR-E7. Absolute drop on a 0-1 scale, checked per provenance half, never pooled (ADR-025).
+    gate_max_drop: dict[str, float] = Field(
+        default_factory=lambda: {
+            "tier_a.by_provenance.hand.recall@5": 0.02,
+            "tier_a.by_provenance.synthetic.recall@5": 0.02,
+            "tier_b.by_provenance.hand.groundedness": 0.03,
+            "tier_b.by_provenance.synthetic.groundedness": 0.03,
+        }
+    )
+
+
+class IngestSettings(BaseModel):
+    # POST /ingest accepts one of these *keys*, never a filesystem path: a path parameter
+    # would let any caller index an arbitrary directory and read it back out.
+    sources: dict[str, str] = Field(default_factory=lambda: {"self": "."})
+    state_path: str = ".rag_state/last_ingest.json"
+
+
+class JudgeSettings(BaseModel):
+    # Tier C judge: any OpenAI-compatible endpoint. The default is local Ollama, so Tier C
+    # costs nothing (NFR-9). A free-tier hosted judge is an env override:
+    # RAG_JUDGE__BASE_URL, RAG_JUDGE__MODEL, and the key in the variable named below.
+    base_url: str = "http://localhost:11434/v1"
+    model: str | None = None  # None -> models.generator
+    api_key_env: str = "RAG_JUDGE_API_KEY"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="RAG_",
@@ -78,6 +124,9 @@ class Settings(BaseSettings):
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
+    eval: EvalSettings = Field(default_factory=EvalSettings)
+    judge: JudgeSettings = Field(default_factory=JudgeSettings)
+    ingest: IngestSettings = Field(default_factory=IngestSettings)
 
     @classmethod
     def settings_customise_sources(

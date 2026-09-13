@@ -270,3 +270,815 @@ deliberately re-scoped to intermediate-to-advanced.
 **Consequences.** Target size lands around 2,500–3,500 LOC including tests. Finishing matters
 more than ceiling for a portfolio project; scope creep back toward the original plan is listed
 as a tracked risk in PRD §12.
+
+---
+
+## ADR-013 — Enforce citations post-hoc, not by constrained decoding
+
+**Context.** FR-G4 requires that a marker in the answer resolve to a chunk that was actually
+in context. A 3B model asked to cite will emit `[4]` when three sources were supplied.
+
+**Decision.** Parse the emitted markers after generation, strip the ones outside the supplied
+range, and record each strip on the `Answer` as `stripped_markers`, with `ungrounded` set when
+nothing survives.
+
+**Rejected — constrained decoding.** A grammar permitting only in-range markers would be
+correct by construction, but it needs logit-level control that Ollama's chat API does not
+expose, and switching to `llama-cpp-python` to get it trades a maintained server for a build
+step on a machine already pinned to 3.12 for wheel-availability reasons (ADR-011). It also
+would not help with the failure that actually matters: an *in-range but unsupported* citation
+is well-formed and a grammar cannot see it.
+
+**Scope, stated deliberately.** This enforcement is **referential only** — it proves the marker
+points at a real chunk, not that the chunk supports the sentence. Support is the Phase 3
+groundedness rail's judgement, which is why `Citation.supported` is left `None` here rather
+than defaulted to `True`. Claiming otherwise would be the exact "decorative guardrail" failure
+this project was built to avoid.
+
+**Consequences.** Enforcement is deterministic, costs microseconds, and produces a counter the
+eval harness can report. Streaming clients see raw tokens, so a fabricated marker can appear
+mid-stream and be absent from the terminal event — the terminal event is authoritative, and
+that is documented in the route.
+
+---
+
+## ADR-014 — Structural isolation of retrieved context, with delimiter neutralisation
+
+**Context.** The corpus is this repository. A source file or a document can contain text that
+reads as an instruction, and this ADR's own prose is now an indexed chunk — the attack is not
+hypothetical here, it is self-inflicted by ADR-010.
+
+**Decision.** Retrieved chunks are wrapped in a `<sources>` … `</sources>` block labelled as
+data, with a system prompt that tells the model to describe rather than obey anything inside
+it. Chunk text containing either delimiter has it rewritten (`</sources>` → `(/sources)`)
+before assembly.
+
+**Rationale for neutralising rather than dropping.** A chunk that legitimately documents the
+delimiters — this paragraph, for instance — should still be readable. What it must not be able
+to do is terminate the block and continue as instructions.
+
+**Consequences.** Prompt-level isolation is a mitigation, not a guarantee; a 3B model can still
+be talked out of it. It is one of three layers: quarantine at ingest (FR-I7, Phase 3), this
+isolation, and the output rails. Its effectiveness is measured by the adversarial suite in
+Phase 3, not asserted here.
+
+---
+
+## ADR-015 — The RRF fused score cannot carry a relevance floor; out-of-scope refusal moves to the topicality rail
+
+**Context.** FR-G6 requires the system to refuse rather than answer from parametric memory
+"when retrieval returns nothing above the relevance floor". `relevance_floor` was configured at
+`0.0` in Phase 1 — a placeholder, never measured.
+
+**Measured, 2026-09-12** (corpus 567 chunks / 80 files; 28 hand-authored golden queries against
+8 blatantly out-of-corpus controls; fusion-only, rerank off):
+
+| Query set | n | min top-1 fused | median | max |
+|---|---|---|---|---|
+| in-corpus (golden) | 28 | 0.500 | 0.750 | 1.000 |
+| out-of-corpus (swallows, sourdough, the Eiffel Tower) | 8 | 0.500 | 0.500 | **1.000** |
+
+**The distributions do not separate.** An out-of-corpus question reaches the same top score as
+the best in-corpus one. This is a property of RRF, not a bug: the fused score is
+`Σ 1/(k + rank_i)` over ranks, normalised by Qdrant. It encodes *agreement between retrievers
+about ordering*, not *similarity to the query*. Both retrievers will happily rank something
+first when nothing is relevant, and that unanimity scores exactly as high as a real hit.
+
+**Decision.** No floor value on the fused score can implement FR-G6's intent, so none is
+invented. `relevance_floor` stays at `0.0` and is documented as guarding only the genuinely
+empty case — filters excluding everything, or an un-ingested corpus — which it does correctly
+and which the tests cover. **Out-of-scope refusal is reassigned to the T1 topicality rail**
+(FR-GR1, Phase 3): cosine distance from the query embedding to the corpus centroid *is* a
+calibrated similarity, and it is the right instrument for this.
+
+**Consequences, stated plainly.** Until Phase 3 lands, this system will answer an out-of-scope
+question using whatever the corpus ranked first, rather than refusing. That is a real gap
+against FR-G6 and it is recorded here rather than papered over with a floor that looks like a
+threshold and separates nothing.
+
+**Rejected — floor on the dense cosine score instead.** Workable in principle, but it needs
+retrieval to surface the pre-fusion dense score, which server-side RRF deliberately does not
+return (ADR-007), and it would duplicate the topicality rail one phase early.
+
+---
+
+## ADR-016 — Citation prompt wording, chosen by measurement after the obvious improvement lost
+
+**Context.** FR-G4 requires every factual sentence to carry a citation marker. Enforcement can
+only remove markers that do not resolve; it cannot make the model emit one. Whether answers get
+cited at all is therefore a property of the prompt, and it is measurable.
+
+**Measured, 2026-09-12** — 28 hand-authored golden queries, corpus of 567 chunks / 80 files,
+`temperature=0`, fusion-only retrieval, `k_final=5`:
+
+| Prompt variant | answers citing nothing | mean citations / answer | p50 latency |
+|---|---|---|---|
+| **A — citation rule stated first, plainly** | **12/28 (43%)** | **0.61** | 34.6 s |
+| B — `CITATION FORMAT` heading, worked example, rule moved last for recency | 18/28 (64%) | 0.39 | 34.2 s |
+
+**Decision.** Keep variant A. Variant B was the change expected to help — a concrete worked
+example and a recency-favoured position are both standard advice for small instruct models — and
+it made the metric **21 points worse**. It was reverted.
+
+**Why this is recorded rather than quietly dropped.** This is the second time in this project
+that a confident prior lost to a measurement (ADR-003 was the first). The value is not the
+wording; it is that a prompt change is now a thing with a number attached. The comment above
+`SYSTEM_PROMPT` says so at the call site, because the next person to "improve" that string will
+not read this file first.
+
+**Not claimed.** No mechanism is offered for *why* B lost. With n=28 and one model the honest
+statement is that it lost, not why. A larger golden set would be needed to say more, and
+inventing an explanation would be exactly the intuition this table exists to displace.
+
+**Open gap, stated plainly.** 43% of answers still carry no citation at all. Enforcement is
+working as specified — it strips fabricated markers, and over these 28 queries there were
+**zero** to strip — but a well-formed uncited answer passes straight through as `ungrounded`.
+Closing that is Phase 3 and 4 work: the T2 groundedness rail acts on the flag, and Tier B's
+citation-recall metric (FR-E2) turns it into a gated number. Phase 2 flags it honestly and
+does not pretend to solve it.
+
+---
+
+## ADR-017 — Pin `transformers < 5` to keep HHEM-2.1-Open working
+
+**Context.** ADR-005 chose HHEM as the groundedness model, serving as both the T2 rail and the
+Tier B eval metric. On first load under the resolved stack it failed outright:
+
+```
+AttributeError: 'HHEMv2ForSequenceClassification' object has no attribute
+'all_tied_weights_keys'
+```
+
+HHEM ships its own modelling code via `trust_remote_code`, written against the transformers 4.x
+API. `uv` had resolved transformers **5.17.0**, whose internals it does not match. The load also
+reported `t5.transformer.encoder.embed_tokens.weight MISSING`, so the model was not merely noisy
+— it was not loading its weights.
+
+**Decision.** Pin `transformers < 5`. The resolver settles on transformers 4.57.6 with
+sentence-transformers 5.7.0 and torch 2.14.0.
+
+**Verified, not assumed.** HHEM was re-run against the five premise/hypothesis pairs published on
+Vectara's model card, and all five land on the expected side:
+
+| premise → hypothesis | score | expected |
+|---|---|---|
+| capital of France is Berlin → is Paris | 0.011 | low |
+| in California → in United States | 0.647 | high |
+| in United States → in California | 0.129 | low |
+| person on a horse jumps… → person outdoors on a horse | 0.897 | high |
+| boy on skateboard on a bridge → skates down the sidewalk | 0.185 | low |
+
+The full test suite and `rag eval retrieval` were re-run after the downgrade; nothing regressed.
+
+**Rejected — swap HHEM for a generic NLI cross-encoder** (`nli-deberta-v3-base` or
+`DeBERTa-v3-base-mnli-fever-anli`, both the same size class, both plain
+`AutoModelForSequenceClassification` with no remote code and no version pin). It would have
+avoided the pin, but it discards the property ADR-005 selected HHEM *for*: it is purpose-built
+for exactly this premise/hypothesis judgement, and it doubles as the eval metric so that the
+thing enforced and the thing measured are definitionally the same. A version pin is a cheaper
+price than losing that.
+
+**Consequence.** The project is held one major version back on transformers until Vectara
+updates the remote code. Recorded as a known constraint rather than discovered later by whoever
+next runs `uv lock --upgrade`.
+
+---
+
+## ADR-018 — The Phase 3 model budget, measured; PRD §4.1 was optimistic
+
+**Context.** PRD §4.1 budgeted the guardrail models from published parameter counts, before any
+of them had been run on this machine.
+
+**Measured 2026-09-12** on the reference CPU. Loaded in sequence into one process, so the
+increments share a single torch runtime — which is why they are each smaller than the same model
+measured alone:
+
+| Step | resident | increment | per call |
+|---|---|---|---|
+| baseline + imports | 0.04 GB | — | — |
+| + `bge-small` embedder | 0.51 GB | +0.47 | — |
+| + Presidio (`en_core_web_sm`) | 0.60 GB | +0.09 | 7 ms |
+| + deberta injection | 1.04 GB | +0.45 | 120 ms warm, 306 ms cold |
+| + HHEM groundedness | **1.42 GB** | +0.38 | 197 ms warm, 4.2 s cold |
+
+**NFR-4 passes with room to spare**: 1.42 GB in-process, plus Ollama (~2.0 GB, separate process)
+and Qdrant (~0.3 GB, container) for roughly **3.7 GB against a 6 GB ceiling**.
+
+**Two estimates in PRD §4.1 were wrong, in opposite directions.**
+
+1. **Presidio would have blown its 0.30 GB line by 3.6×.** The default `AnalyzerEngine()`
+   silently downloads and loads `en_core_web_lg` — 382 MB on disk, **1.09 GB resident, 102 ms
+   per call**. Pinning `en_core_web_sm` *and* scoping the entity list to the five types the
+   policy names brings that to **0.48 GB and 7 ms** — a 15× latency reduction. Both are
+   load-bearing and both are asserted in tests, because the expensive path is the default one
+   and nothing about it looks wrong.
+2. **The injection classifier is 3× its latency budget.** PRD §7.4 estimated ~40 ms; it measures
+   120 ms warm. The estimate appears to have been taken from parameter count rather than a run.
+
+**Consequence.** NFR-2 (guardrail overhead p50 ≤ 300 ms) still passes at **184 ms p50, 220 ms
+p95** across the 28 golden queries, because the T0 rails cost microseconds and short-circuit a
+large share of hostile traffic before the classifier runs. The tiering is not a nicety here — it
+is the only reason a 120 ms classifier fits inside a 300 ms budget at all.
+
+**PRD §4.1 is updated to the measured figures rather than left as the original estimates.**
+
+---
+
+## ADR-019 — Topicality thresholds, measured; this is what ADR-015 deferred here
+
+**Context.** ADR-015 established that the RRF fused score cannot detect an out-of-scope question
+— in-corpus and out-of-corpus scores overlap completely — and reassigned the job to this rail.
+That left a promise to keep: show that cosine-to-centroid actually does better.
+
+**Measured 2026-09-12** — 28 hand-authored golden queries against 12 blatantly out-of-corpus
+controls, cosine similarity to the mean of all 567 indexed dense vectors:
+
+| | n | min | median | max |
+|---|---|---|---|---|
+| in-corpus | 28 | 0.564 | 0.687 | 0.779 |
+| out-of-corpus | 12 | 0.422 | 0.497 | 0.644 |
+
+**It separates far better than RRF, but not perfectly.** The lowest in-corpus query (0.564) sits
+below the highest out-of-corpus one (0.644), so there is no threshold that is simultaneously
+perfect in both directions. That overlap is the honest finding; the thresholds are a chosen
+trade, not a clean cut.
+
+Threshold sweep:
+
+| t_block | in-corpus wrongly refused | out-of-corpus refused |
+|---|---|---|
+| 0.50 | 0/28 | 7/12 (58%) |
+| 0.52 | 0/28 | 9/12 (75%) |
+| **0.55** | **0/28** | **10/12 (83%)** |
+| 0.57 | 1/28 (3.6%) | 11/12 (92%) |
+
+| t_pass | in-corpus passing cleanly | out-of-corpus reaching "pass" |
+|---|---|---|
+| 0.60 | 27/28 | 1/12 |
+| **0.65** | **25/28 (89%)** | **0/12** |
+| 0.70 | 12/28 (43%) | 0/12 |
+
+**Decision.** `t_block = 0.55`, `t_pass = 0.65`. 0.55 is the last point before false refusals
+begin — 0.57 buys one extra catch at the cost of refusing a real question, and on a system whose
+false-refusal rate is a headline metric that is the wrong side of the trade. 0.65 is the lowest
+value at which nothing out-of-scope reaches a clean pass.
+
+**Consequence.** The five queries landing between the thresholds hedge rather than resolve. That
+is the band doing its job. Note this rail does **not** escalate to T3 — FR-GR4 reserves that for
+output groundedness — so a hedge here is final, and costs no latency.
+
+**Against ADR-015's gap:** out-of-scope refusal now works, measured at 5/6 in the adversarial
+suite. The gap that ADR recorded is closed, and the residual 1/6 is reported rather than hidden.
+
+---
+
+## ADR-020 — PII threshold, and the rail-interaction bug the adversarial suite found
+
+**Context.** The first adversarial run scored the PII family at 50% attack success. Both failures
+had causes worth recording, and one of them was a genuine design error.
+
+### 1. `t_block = 0.5` silently missed every phone number
+
+Presidio's confidence is per-recogniser, not a uniform scale. Measured on this machine:
+
+| input | entity | score |
+|---|---|---|
+| `bob.smith@example.com` | EMAIL_ADDRESS | 1.00 |
+| `4111111111111111` | CREDIT_CARD | 1.00 |
+| `+1-415-555-0132` | PHONE_NUMBER | **0.40** |
+| `SSN 123-45-6789` | *(nothing detected)* | — |
+
+0.40 is Presidio's "pattern matched, not independently validated" level, and the guessed 0.50 sat
+just above it. Lowering to **0.40** costs nothing measurable: across the 28 real golden queries,
+**0/28 produce any detection at any threshold down to 0.30**, so no false-positive budget is
+being spent.
+
+**Not fixed, and stated plainly:** `US_SSN` is in the policy's entity list but Presidio's
+recogniser did not fire on a bare `123-45-6789` — it wants surrounding context. The entity stays
+configured, but this rail must not be described as covering SSNs on the strength of the config.
+
+### 2. Redaction output tripped the next rail — rails were not independent
+
+The second failure was the interesting one. The PII rail redacts before the injection classifier
+runs, and the classifier then scored the *redacted* text:
+
+| text handed to the injection classifier | injection probability |
+|---|---|
+| `My email is bob.smith@example.com - which file handles ingestion?` | **0.0007** |
+| `My email is <EMAIL_ADDRESS> - which file handles ingestion?` | **0.9350** |
+
+**Redacting a benign query manufactured an attack out of nothing.** A user who mentions their own
+email while asking a real question got blocked — and the benign controls, all PII-free, could not
+see it.
+
+Placeholder-shopping was tried and abandoned: `[EMAIL_ADDRESS]` scores 0.171, `{EMAIL_ADDRESS}`
+0.359, `[redacted EMAIL_ADDRESS]` 0.996 and `EMAIL_ADDRESS_REDACTED` 1.000, while
+`<PHONE_NUMBER>` in the same sentence position scores 0.0003. The behaviour is erratic enough
+that no placeholder can be called safe on this evidence.
+
+**Decision — the fix is architectural, not cosmetic.** The pipeline no longer feeds one rail's
+redaction to the next. A redaction changes what the *caller* receives; every rail inspects the
+original text. This is what the rail contract already required — rule 5, "no rail may depend on
+another rail having run" — so the bug was a violation of the existing design rather than a gap in
+it. Chaining rail outputs makes each rail's input a function of every rail before it, which is
+exactly how a benign query becomes an attack.
+
+**Suite change.** Two PII-bearing *benign* controls were added, because the original controls
+were all PII-free and structurally could not catch this. A suite that cannot see a bug is as much
+the finding as the bug.
+
+**Result.** PII attack success 50% → **0%**, with false refusals still 0/12.
+
+---
+
+## ADR-021 — Groundedness must score per chunk and take the max; HHEM's 512-token window
+
+**Context.** With groundedness scoring each sentence against the concatenated text of the chunks
+it cited — the definition in `eval/CLAUDE.md` — the rail produced **no usable signal at all**:
+
+| | scores |
+|---|---|
+| answerable questions (n=10) | 0.000 0.000 0.000 0.000 0.002 0.138 0.140 0.184 0.343 0.482 |
+| unanswerable questions (n=4) | 0.000 0.000 0.000 0.000 |
+
+A correct, cited answer and a confabulated answer about a non-existent Redis cache both scored
+0.000. No threshold separates those distributions, and a rail configured on them would have been
+decorative — the exact failure this project was built to avoid.
+
+**Two causes, both measured.**
+
+1. **Silent truncation.** HHEM's window is 512 tokens; a concatenated premise reached 1650 and
+   transformers warned it would be truncated. The support for the claim was in the part cut off.
+   The same sentence scored **0.184** against a concatenated premise and **0.969** scored against
+   chunks individually.
+2. **The cited chunk is the wrong premise for this question.** Phase 2 measured that 43% of
+   answers carry no citation at all (ADR-016); under the cited-chunk definition every one of
+   those scores 0 regardless of whether it was actually grounded.
+
+**Decision.** Score each sentence against each retrieved chunk separately and take the **max** —
+nothing is concatenated, so nothing is truncated, and a claim counts as grounded if *any*
+retrieved passage supports it.
+
+| | scores under per-chunk max |
+|---|---|
+| answerable | 0.075 0.109 0.437 0.509 0.527 0.616 0.876 0.900 0.940 0.952 |
+| unanswerable | 0.077 0.127 0.148 0.455 |
+
+Still overlapping — this is a hedging signal, not an oracle — but there is now a real difference
+between the distributions where before there was none.
+
+**Deliberate divergence from `eval/CLAUDE.md`.** That file defines groundedness against *cited*
+chunks. The rail now asks a narrower question — *is this answer hallucinated?* — for which any
+retrieved passage is valid evidence. Whether the answer cited the *right* chunk is citation
+precision, a different metric, and conflating the two is what destroyed the signal. Tier B keeps
+the cited-chunk definition; the rail and the metric now differ on purpose, and that difference is
+recorded here rather than left for someone to trip over.
+
+**Also measured: strip citation markers before scoring.** Leaving `[1]` in the hypothesis costs
+~0.10–0.12 on every supported sentence (0.944→0.846, 0.970→0.849, 0.965→0.869) while leaving a
+contradicted one unchanged (0.507→0.511). The marker is not part of the claim, and keeping it
+compresses precisely the separation the rail depends on.
+
+---
+
+## ADR-022 — A rail's trip verdict is declared in policy, never hardcoded
+
+**Context.** The first full-path adversarial run — input rails, retrieval, generation, output
+rails — returned a **91.7% false refusal rate: 11 of 12 benign controls refused**, every one by
+the groundedness rail. Attack success would have looked excellent. The suite could only say so
+because it has benign controls.
+
+**Cause.** The groundedness rail returned a hardcoded `refuse` when the score fell below
+`t_block`, while `config/guardrails.yaml` declared `action: hedge` for it. The policy field was
+being ignored, so FR-GR3 ("policy is declarative … per-rail `action`") was not actually
+implemented, and FR-GR5 ("quality rails fail open with a hedge") was contradicted in code.
+
+The two defects compounded: badly calibrated thresholds (ADR-021) pushed most real answers below
+`t_block`, and the hardcoded verdict turned every one of those into a denial rather than a
+warning.
+
+**Decision.** Every rail's trip verdict comes from `policy.trip_verdict`. `allow` maps to `pass`,
+so a policy can neutralise a rail without disabling it — the rail still runs and still reports its
+score to the trace, which is the difference between "we decided this is fine" and "we stopped
+looking".
+
+**Consequence.** Groundedness now hedges: the answer is returned with a warning that it may not be
+fully supported, rather than withheld. Refusing remains available to anyone who sets
+`action: refuse`, which is the point of having the field.
+
+**The general lesson, recorded because it generalises.** A guardrail's failure mode is not only
+"lets an attack through" — it is equally "refuses everything and reports a perfect attack-success
+rate". Only the benign half of the suite distinguishes those, and this run is the concrete
+demonstration that the benign half earns its place.
+
+---
+
+## ADR-023 — Evaluation fixtures were in the corpus; `eval/` is never indexed
+
+**Context.** The loader indexes every `.yaml`, and only `eval/reports` was gitignored. The golden
+set and the adversarial suite were therefore retrievable context. A golden query could retrieve
+the file containing its own question text, and adversarial payloads sat in the index beside real
+code.
+
+**Decision.** `eval/` is a hard loader exclusion (`ALWAYS_SKIP_PREFIXES`), asserted by a test.
+
+**Measured effect — a controlled A/B on the same tree** (2026-09-13, fusion only, 28 hand
+queries, 1,047 chunks). The only difference between the rows is the two `eval/` chunks:
+
+| | NDCG@5 | MRR | Recall@5 | Hit@5 |
+|---|---|---|---|---|
+| `eval/` indexed | 0.650 | 0.607 | 0.661 | 0.714 |
+| `eval/` excluded | **0.684** | **0.631** | 0.661 | 0.714 |
+
+The contamination cost **−0.034 NDCG@5 and −0.024 MRR** and left recall and hit rate unchanged.
+The golden file did not knock relevant chunks out of the top 5; it outranked them. That damage
+is visible only in rank-sensitive metrics, which is why Recall@5 alone never showed it.
+
+**The earlier Tier A figures are not comparable, and this ADR does not pretend they are.** The
+Phase 1–3 numbers (NDCG@5 0.716, Recall@5 0.750 over 567 chunks) were measured on a corpus that
+has since nearly doubled with Phase 2–4 code and documentation. Against today's corpus, Recall@5
+is 0.661. That drop comes from corpus growth, not from this change, and it is reported rather
+than explained away.
+
+**Found on the way: the ingest scan now quarantines 29 chunks, and not only adversarial tests.**
+Most are unit tests that contain attack strings deliberately (`test_prompt.py`,
+`test_guardrail_pipeline.py`, `test_rail_injection.py` …). The classifier also quarantined
+product code: `src/rag/cli_eval.py` (2 chunks), `src/rag/guardrails/pipeline.py`,
+`src/rag/guardrails/policy.py`, and this phase's plan document. Those chunks are now invisible to
+retrieval. Two consequences:
+
+1. CI cannot skip the scan (`--no-scan`) without indexing a different corpus from the one the
+   product serves. The baseline must come from a scanned index.
+2. The injection threshold (`t_block 0.80`, still UNMEASURED) is quarantining the guardrail code
+   that *describes* injection. That is a false-positive rate on real code, recorded here, not
+   tuned in this phase.
+
+**Also.** The golden file is renamed `golden.yaml` and hashed with line endings normalised, so a
+CRLF checkout and the LF CI runner agree. Stale chunk references now fail the run (exit 2)
+instead of scoring as misses.
+
+---
+
+## ADR-024 — BERTScore in-house on distilbert; Tier B groundedness per cited chunk
+
+**Context.** FR-E2 asks for BERTScore against golden answers. The `bert-score` package adds
+**11 dependencies** (matplotlib, pandas, …) to the resolved set for what is a greedy cosine match
+over transformer hidden states. Its recommended model, `microsoft/deberta-xlarge-mnli`, is a
+**3,036 MB** download (measured from the Hugging Face API, 2026-09-13).
+
+**Decision.** Implement the metric in `rag.eval.metrics.generation.bertscore_f1` (numpy, ~15
+lines) over `distilbert/distilbert-base-uncased` hidden layer 5 — the model and layer
+`bert-score` itself uses by default for that checkpoint. 268 MB download, **+0.14 GB resident**
+in the eval process (measured). The API process never loads it.
+
+**Parity, measured** in a throwaway `uv run --with bert-score` environment, five pairs,
+`idf=False`, no baseline rescaling:
+
+| pair | ours | bert-score | \|Δ\| |
+|---|---|---|---|
+| RRF paraphrase | 0.85318 | 0.85318 | 0.000000 |
+| idempotency paraphrase | 0.90731 | 0.90755 | 0.000243 |
+| reranker paraphrase | 0.82685 | 0.82685 | 0.000000 |
+| unrelated | 0.69862 | 0.69862 | 0.000000 |
+| identical | 1.00000 | 1.00000 | 0.000000 |
+
+Max |ΔF1| = **0.000243**, inside the 1e-3 tolerance set before running it.
+
+**Rejected.** The `bert-score` package: identical numbers for 11 more packages. The
+deberta-xlarge-mnli model: best human correlation in the BERTScore paper, 11× the download and
+most of the remaining model budget. **Consequence stated plainly:** distilbert scores are not
+comparable to published BERTScore figures that use other models. They are comparable run-to-run,
+which is what a regression harness needs.
+
+**Also decided — Tier B metric definitions.**
+
+- *Groundedness* scores each sentence against each **cited** chunk separately and keeps the max.
+  This keeps `eval/CLAUDE.md`'s cited-chunk definition while never concatenating premises, which
+  silently truncated at HHEM's 512-token window (ADR-021). The *rail* keeps its any-retrieved-chunk
+  definition. The two differ on purpose: the rail asks "is this hallucinated?", the metric asks
+  "did the citations carry it?".
+- *Citation precision* is `None`, not 0, for an answer with no citations; 0/0 is undefined.
+- *Citation recall* treats every sentence as a claim. Stated simplification.
+- A citation marker placed after the full stop attaches to the following sentence. Known
+  limitation of sentence-level scoring.
+
+---
+
+## ADR-025 — The gate checks each provenance half, and "not run" is not "passed"
+
+**Decision.** FR-E7's thresholds — Recall@5 may not drop more than 2 points, mean groundedness not
+more than 3 — are applied to the `hand` and `synthetic` halves **separately**, as dotted paths in
+`eval.gate_max_drop` (e.g. `tier_a.by_provenance.hand.recall@5`). A pooled figure would let the
+easier synthetic half absorb a hand-authored regression — the pooling `eval/CLAUDE.md` forbids.
+
+**Rules, each asserted by a test.**
+
+- A metric present in only one report is `not_run`, not a failure. That is what lets CI gate
+  Tier A alone (ADR-026) without pretending Tier B passed.
+- A run in which *nothing* was gated **fails**. A gate that checked nothing must not print PASS.
+- A different golden-set hash fails outright; comparing across golden sets is invalid.
+- A drop exactly at the threshold passes. `0.78 − 0.80` is `−0.020000000000000018` in IEEE-754,
+  so the comparison carries a 1e-9 epsilon — without it the boundary would fail by rounding.
+- Promotion refuses a report whose corpus commit is `-dirty`: its numbers correspond to no commit.
+- Only `rag eval promote-baseline` writes `eval/baselines/`. A test asserts that writing a report
+  leaves the baseline file untouched.
+
+**Consequence, stated plainly: the gate is strict, not tolerant.** With 28 hand queries, one
+single-file query flipping from hit to miss moves hand Recall@5 by 1/28 = **3.6 points** — more than
+the 2-point threshold. So the gate trips on any single-query retrieval loss. That is defensible
+only because Tier A is bit-reproducible (`tests/integration/test_determinism.py`); on a noisy
+metric this threshold would be flake, not signal. Growing the hand half is the way to make the
+threshold mean what FR-E7 intended.
+
+---
+
+## ADR-026 — CI gates Tier A; the groundedness gate runs locally
+
+**Context.** FR-E7 gates on Recall@5 and on mean groundedness. Groundedness needs generated answers:
+a 1.9 GB model pull, then a CPU generation per golden query. Measured on the reference laptop, the
+first full Tier B run over 34 hand queries took **98.5 minutes** (under some CPU contention). A shared
+CI runner has fewer cores than that laptop.
+
+**Decision.** A `retrieval-gate` CI job starts a Qdrant service container, indexes the checkout with
+the injection scan on, runs Tier A and gates Recall@5 per provenance half. `rag eval gate` enforces
+the groundedness threshold locally before any baseline is promoted. In CI the Tier B checks report
+`not_run`, never `pass` (ADR-025).
+
+**Proof the gate fails when it should.** A throwaway branch set `k_dense` and `k_sparse` to 1. Run
+[34758239606](https://github.com/Akash9874/Enterprise-RAG-with-Guardrails-Evaluation/actions/runs/34758239606):
+
+| | Recall@5 (hand) | NDCG@5 | MRR | Hit@5 | gate |
+|---|---|---|---|---|---|
+| baseline (`07b032b`) | 0.661 | 0.683 | 0.643 | 0.750 | — |
+| injected regression | **0.464** | 0.398 | 0.411 | 0.536 | **FAIL** (Δ −0.196, max drop 0.020) |
+
+**Laptop and runner agree exactly.** The same commit indexed locally with the same scan gave
+identical Tier A to four decimals, with **0 of 28 queries** returning a different top-5 order.
+The baseline was promoted from the CI artifact because CI is where the gate runs. On this evidence it
+would have been identical promoted from the laptop.
+
+**The finding this ADR most needs to record: the gate's margin is eaten by the corpus itself.**
+This system indexes its own repository, so every commit changes the corpus. The first green run
+after promotion was on a tree that added Tier C, the API endpoints and the UI, with **no retrieval
+code changed**:
+
+| | chunks | quarantined | Recall@5 (hand) |
+|---|---|---|---|
+| baseline `07b032b` | 1,194 | 35 | 0.661 |
+| green run `984d316` | 1,275 | 37 | 0.643 (Δ **−0.018**, gate PASS) |
+
+Corpus growth alone used 1.8 of the 2.0 points FR-E7 allows. The next commit that adds retrievable
+text near a golden query's answer can fail the gate with no regression in the retriever. That is a
+property of a self-indexing corpus meeting a strict threshold (ADR-025: one query is 3.6 points), not
+flake — Tier A is bit-reproducible. The options, none taken silently:
+
+1. Re-promote the baseline deliberately when a PR legitimately grows the corpus, with the reason in
+   the commit. This is what FR-E8 already requires, and the shipped behaviour.
+2. Index a frozen corpus snapshot in CI, so the gate isolates retrieval changes from corpus changes.
+   It would then stop measuring the product as served.
+3. Loosen the threshold. That is FR-E7's number to change, not this phase's.
+
+**Found and fixed: provenance recorded the wrong commit when the indexed tree was not the working tree.**
+`corpus_commit` read the eval process's own git checkout, but the index can be built from any path.
+The laptop comparison above indexed a worktree at `07b032b` from a checkout at `3e2a38e`, and its report
+said `3e2a38e-dirty` — a report asserting a corpus it never scored, which is exactly what FR-E4
+provenance exists to prevent. CI never showed it, because CI indexes its own checkout.
+
+The fix moves the fact to where it is true. Ingest stamps every chunk's payload with the commit of the
+tree being indexed (`rag.gitinfo.git_commit(source)`, asked of the source directory, never of the
+working directory), and records it in `IngestSummary`. Eval reads the distinct stamps back from Qdrant
+(`QdrantStore.corpus_commits`) and passes them to `collect_provenance`. One commit is recorded as
+is. Several, or chunks with no stamp, become `mixed:<a>,<b>`, which `Provenance.problems()`
+rejects with "re-ingest with --recreate". That also catches the stale chunks an incremental ingest
+leaves behind: `upsert` never deletes points from files that have since been removed or edited, so
+an index could previously mix trees without any report saying so. Every existing index predates the
+stamps and reads as `unknown` until re-ingested, which is the correct refusal, not a regression.
+
+**Measured along the way.** Linux torch resolved from PyPI with 15 `nvidia-*` CUDA packages plus
+`triton`. Routing it to the PyTorch CPU index removed all of them from the lock; Linux now resolves
+`2.14.0+cpu`. There is no prior CI run of this job with CUDA to compare install time against, so no
+before/after time is claimed. The scanned ingest takes 495 s on the runner.
+
+**Rejected.** Tier B in CI: truest to FR-E7, but ~100 min of CPU generation per PR on a shared runner.
+Re-scoring committed answers in CI: fast, but it catches scoring regressions and never generation
+ones, so it would look like a groundedness gate without being one. Skipping the injection scan in CI:
+it quarantines 35 chunks including real code (ADR-023), so a scan-less CI would gate a different corpus.
+
+---
+
+## ADR-027 — Ragas is an opt-in extra, pinned around a broken dependency, never a default
+
+**Context.** FR-E3 names Ragas for Tier C. Measured 2026-09-13, `ragas` 0.4.3 (the latest release)
+adds **38 packages** to the resolved set — `langchain`, `langchain-community`, `langchain-openai`,
+four `langgraph` packages, `sqlalchemy`, `openai`, `datasets`, `pyarrow`. That is the dependency
+tree PRD §10 rejected for orchestration.
+
+**Decision.** `[project.optional-dependencies] judge`. The default install, CI (which no longer uses
+`--all-extras`) and the Docker image never resolve it; a dry-run sync confirms zero Ragas or LangChain
+packages without the extra. Tier C reuses Tier B's stored answers and contexts, so it adds only judge
+calls. The judge is any OpenAI-compatible endpoint, defaulting to local Ollama (NFR-9), with a
+free-tier hosted judge available by env override. Its name is stamped into provenance, and
+`tier_c_enabled` without a judge is an invalid report.
+
+**Ragas 0.4.3 does not import against its own resolution.** It declares `langchain-community`
+unpinned but imports `langchain_community.chat_models.vertexai` at module load, which
+`langchain-community` 0.4.x removed. With the resolver's choice (0.4.2), `import ragas` raises
+`ModuleNotFoundError`. Confirmed in an isolated environment before touching the project:
+0.3.31 imports cleanly alongside this project's `langchain-core` 1.6.3. The extra therefore pins
+`langchain-community<0.4`. Separately, 0.4.3 deprecates `ragas.embeddings.embedding_factory`; the
+adapter uses `HuggingFaceEmbeddings` on the local bge-small embedder, written against the installed
+signatures rather than documentation.
+
+**Measured — and n is small on purpose, stated rather than hidden.** 3 hand queries, local judge
+`qwen2.5:3b-instruct-q4_K_M`, answers taken from a Tier B run on the same 3 queries:
+
+| | hand |
+|---|---|
+| faithfulness | 0.500 |
+| answer relevancy | 0.328 |
+| judgements failed to parse | 0 / 6 |
+| judge wall time | 475 s for 3 queries (~158 s/query), overlapping a Docker image build |
+
+At ~158 s per query a full golden set is well over an hour of judging on this laptop, which is why
+Tier C is opt-in and `--limit`-able, never part of `rag eval all` or CI. These three numbers are not
+a quality claim about the system: a 3B judge correlates poorly with human judgement, and n=3 is a
+smoke measurement of cost and parse reliability. Tier A and B remain the backbone.
+
+**Rejected.** Ragas as a core dependency: 38 packages on every install for an opt-in tier.
+Hand-rolled Ragas-style prompts: zero packages, but "Ragas-like" numbers comparable with no one
+else's. Dropping Tier C: defensible given a 3B judge, but FR-E3 is in scope.
+
+---
+
+## ADR-028 — Compose runs qdrant, api and ui; Ollama stays on the host
+
+**Context.** Success criterion 1: `docker compose up` followed by one ingest command yields a working
+demo in ≤ 90 s, with models pre-pulled (NFR-6). On the reference machine Ollama runs natively with the
+generator already pulled. An Ollama container under Docker Desktop runs CPU-only inside the WSL VM and
+would pull 1.9 GB on a fresh volume.
+
+**Decision.** Compose builds one CPU-only image, used by both `api` and `ui`, and reaches host Ollama
+through `host.docker.internal`. Encoder weights live in a named `models` volume, warmed once by
+`scripts/bootstrap_models.py --warm`. The API healthcheck passes only when `/health` reports every
+dependency ready, not merely when the process is up. `POST /ingest` indexes the repository through a
+read-only `/corpus` mount, selected by the `self` source key.
+
+**Measured** (2026-09-13, reference laptop):
+
+| | result |
+|---|---|
+| `docker compose up -d --wait`, images built, models volume warm | **21.4 s** to all services healthy — NFR-6 ≤ 90 s, **PASS** |
+| `/health` | `ok`, with Qdrant and Ollama both ready; UI HTTP 200 |
+| host Ollama reached from a container | HTTP 200 as shipped; no `OLLAMA_HOST=0.0.0.0` change needed |
+| image size | **5.46 GB → 3.12 GB** after moving uv's download cache into a BuildKit cache mount |
+| encoder warm-up | 238 s into an empty volume; 27 s when cached |
+| `POST /ingest` inside the container | **1,192 s** — 1,306 chunks, 37 quarantined |
+| first query, cold | 78.8 s — generation 47.1 s, plus first-use model loads |
+| second query, warm | 50.5 s — generation 6.9 s, groundedness rail **43.0 s** (ADR-029) |
+
+The container ingest is 2.4× CI's 495 s: Docker Desktop's VM runs the injection scan slower than a
+native runner. It was also run without `--recreate`, so `/corpus/stats` reported 1,308 points against
+1,306 ingested. The two stale points survived from an earlier index, the incremental-ingest staleness
+that ADR-026's provenance fix now rejects.
+
+**Found on the way — four defects, all fixed in this phase.**
+
+1. *uv's download cache shipped inside the image.* `docker history` showed a 4.06 GB dependency layer
+   over a 2.1 GB venv, and `/root/.cache` held 1.75 GB of downloaded wheels. The second `uv sync` layer
+   was 3.47 MB, ruling out layer duplication before the cache mount went in.
+2. *`en_core_web_sm` was never locked.* It had been installed into the development venv by hand, so no
+   fresh install — CI or image — had the PII rail's model. It is now a pinned direct dependency.
+3. *HHEM's `trust_remote_code` load was unpinned.* A fresh container cache downloaded a new
+   `modeling_hhem_v2.py`. The rail and the Tier B scorer now load revision `8e4a2e6e`, the snapshot the
+   local cache had used for every ADR-021 measurement. At the pin, the real model scores a supported
+   claim 0.886 and a contradicted one 0.007, with no new-code warning. **Residual, not fixable here:**
+   HHEM's own code loads the `google/flan-t5-base` tokenizer from `config.foundation` without a revision.
+4. *The guardrail waterfall mislabelled a blocked request.* `block` and `refuse` were near-identical reds
+   (`#b71c1c`, `#c62828`), and the seven-entry legend was clipped to four, hiding `block`. On a one-bar
+   chart for a blocked injection attempt, a reader matched the bar to "refuse". **Found only by viewing
+   the rendered screenshot** — the page's accessibility tree was correct; the picture was not. `block`
+   is now near-black, and the legend lists only the verdicts on the chart.
+
+**Also stated plainly.** The image has no `git`, so chunks ingested inside it are stamped
+`corpus_commit: unknown` and eval reports cannot be written from the container. That is the intended
+refusal (ADR-026), not a gap: the container serves the demo, and evaluation runs where the tree's
+history is.
+
+**Rejected.** An Ollama service in Compose: fully self-contained, but a first run pulls 1.9 GB and runs
+slower inside the VM on this hardware. It is recorded in `FUTURE.md` as an optional profile for
+reviewers without a native Ollama.
+
+---
+
+## ADR-029 — Groundedness costs ~14 s per answer on CPU; NFR-2 as defined is not met
+
+**Context.** PRD §8 defines NFR-2 as *guardrail overhead p50 — sum of all rails, excluding T3 escalation
+— ≤ 300 ms*. Phase 3 recorded **184 ms p50, PASS**. But `rag bench` times `pipeline.run_input` only, so
+that PASS measured the input rails and never the output groundedness rail. The gap surfaced in the
+Compose demo, not in the harness: a warm query spent 6.9 s generating and **43.0 s** in the groundedness
+rail.
+
+**Ruled out first, by evidence.**
+
+- *Not T3 escalation.* The trace showed `escalated: false` and carried no escalation evidence. The
+  answer's mean HHEM score was 0.886, above `t_pass` 0.50, so the rail passed on T2 alone.
+- *Not mainly Docker.* The same 20 pairs were timed natively and in the container:
+
+  | 20 pairs, ~400-token premises, 6 torch threads | 1 pair | 20 pairs | ratio |
+  |---|---|---|---|
+  | host | 586 ms | **13,936 ms** | 23.8× |
+  | container | 648 ms | 19,327 ms | 29.8× |
+
+  The container adds ~1.4×; the cost exists natively.
+- *Not a missing batch.* The vendor `predict` already tokenizes every pair into one padded batch and runs
+  a single forward pass. Batching buys no per-sequence speed on this CPU — 697 ms per sequence in a
+  batch of 20 against 586 ms alone — because one ~400-token sequence already saturates the threads.
+
+**Root cause: plain compute.** ADR-021 scores each sentence against each retrieved chunk and keeps the
+max. That is correct — concatenating premises silently truncated at HHEM's 512-token window and
+destroyed the signal — but it makes one answer cost *sentences × chunks* forward passes of a T5-base
+cross-encoder at up to 512 tokens: 4 sentences × 5 chunks = 20 passes, ~14 s natively. The 197 ms
+recorded against this rail in PRD §7.4 does not hold for a realistic answer; a single ~400-token pair
+alone takes 586 ms on this machine.
+
+**Decision.** Keep per-chunk scoring and report the cost truthfully, rather than change a measured design
+this late. NFR-2 is recorded as **not met**: input rails 184 ms p50 (within target), groundedness ~14 s
+per typical answer natively (not). The README states the two numbers separately.
+
+**Options considered and deferred, with their costs** (`FUTURE.md`):
+
+| option | effect | cost |
+|---|---|---|
+| score only the chunks each sentence cites, as Tier B does | the warm query had 4 sentences and 1 citation: ~1–4 passes instead of 20 | reopens ADR-021; thresholds must be re-measured on the golden set |
+| run groundedness after the answer returns | leaves the latency path entirely | loses the hedge-before-display guarantee; changes the stream contract |
+| shorten premises | cheaper attention | reintroduces the truncation ADR-021 measured as destroying the signal |
+
+**Also found, separate from this latency: FR-GR7's escalation budget does not cap T3.** `_escalate`
+refuses to escalate only when the budget is already exhausted (`<= 0`). A positive budget is compared
+*after* the judge returns: on overrun the rail sets `budget_exceeded` and still returns the judge's
+verdict. FR-GR7 requires degrading to the T2 verdict. No test covers a positive-budget overrun. It did
+not cause the latency above — escalation never ran — and is recorded for a test-first fix.
+
+**The general lesson.** A benchmark that measures a convenient subset of a requirement reports a PASS for
+the subset. This one stood for a whole phase until a live demo exposed it.
+
+---
+
+## ADR-030 — Echoed source markup raised a groundedness score into the escalation band
+
+**Context.** In the demo, *"Why was bge-reranker-large rejected?"* produced an answer whose facts match
+ADR-003 and whose citation `[2]` points at the right source. The groundedness rail still hedged it,
+escalating to T3 on the way. Three separate things happened in that one answer. Each was found by
+reading the answer's guardrail trace, and each is measured below at the size of the evidence: one
+answer.
+
+**1. The model leaked the prompt's source markup into its prose.** The answer ended *"as mentioned in
+`[source marker="[2]" path="Docs/decisions.md" location="…ADR-003…"]`"*. That is the
+`<source marker=… path=… location=…>` element `build_prompt` wraps each chunk in, reproduced with
+square brackets, even though the system prompt says *never repeat the source path or the source header
+line*. Citation enforcement did not remove it, because it only strips out-of-range `[n]` markers. The
+leak appeared in **1 of the 6 answers** whose text was inspected.
+
+**2. The leaked markup *raised* the groundedness score.** The rail's live score was 0.309. Scored
+offline against the same two ADR-003 chunks at the pinned HHEM revision, the sentence as the rail saw it
+reproduced that score exactly. With the markup removed, the same claim scored less than half as much:
+
+| hypothesis scored against the ADR-003 chunks | max | per chunk | band |
+|---|---|---|---|
+| as written, with leaked markup (what the rail scored) | **0.309** | 0.004 / 0.309 | inside the band → escalate to T3 |
+| same claim, markup removed | **0.156** | 0.003 / 0.156 | at or below `t_block` 0.30 → trip (action: hedge) |
+
+The final verdict is `hedge` either way. What the leak changed was the path: its inflated score entered
+the escalation band and triggered a T3 call the clean sentence would never have made. *Why* the markup
+raised the score is not established; overlap between the echoed ADR title and the source text is the
+obvious candidate, and was not isolated.
+
+**3. That T3 call ran 3.6× over its budget, uncapped.** The trace recorded `escalation_ms` 17,959 against
+`escalation_budget_ms` 5,000, with `budget_exceeded: true` and `judge_reply: UNSUPPORTED`. This is the
+FR-GR7 gap ADR-029 recorded from reading `_escalate`, now observed live: the overrun was flagged, not
+capped. Here it cost latency, not correctness. Of the rail's 22.2 s, about 18 s was the judge and about
+4 s was HHEM. The answer had one sentence, so roughly 5 HHEM pairs, which is consistent with ADR-029's
+sentences × chunks cost.
+
+**What this does and does not establish about the rail.**
+
+- It is **not** established that HHEM under-scored a correct answer. ADR-003 says MiniLM was *expected*
+  to take ~25 ms; the answer states that estimate as fact and adds a judgement ("too high"). A low score
+  for the cleaned claim (0.156) is at least partly defensible, so this is not claimed as a false hedge.
+- One case does show that echoing source metadata can make an answer score *more* grounded than stating
+  the claim cleanly. How often that happens is not measured.
+- A hypothesis only: part of the claim's support may sit in each of the two ADR-003 chunks (1,932 and
+  693 characters), which ADR-021's per-chunk max cannot combine.
+
+**Decision.** Document, not fix, consistent with ADR-029. Both candidate fixes change measured behaviour,
+and reporting either honestly needs Tier B re-measured (~100 min):
+
+- **Strip leaked `[source …]` markup in citation enforcement.** The displayed answer would be clean, but
+  by the table above it also *lowers* groundedness for such answers, shifting rail paths and Tier B
+  numbers.
+- **Change the prompt.** The prompt already forbids this, and ADR-016 records the obvious prompt
+  improvement losing to measurement once.
+
+**The README's trace screenshot is this answer.** It is captioned for what the trace shows — a correctly
+cited answer that the rail hedged via an over-budget escalation — and not as the rail catching an
+unsupported answer, which this evidence does not establish.

@@ -7,6 +7,7 @@ overlap is artificially high and pooling the two would flatter the system (PRD F
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Literal
 
@@ -24,6 +25,8 @@ class GoldenQuery(BaseModel):
     relevant_files: list[str] = Field(default_factory=list)
     golden_answer: str | None = None
     expect_refusal: bool = False
+    # Synthetic only: set true once a human has verified the entry (PRD §7.5, 20%).
+    spot_checked: bool | None = None
 
     @model_validator(mode="after")
     def require_ground_truth(self) -> GoldenQuery:
@@ -48,3 +51,24 @@ def load_golden(path: Path) -> list[GoldenQuery]:
             raise ValueError(f"duplicate golden query id: {query.id}")
         seen.add(query.id)
     return queries
+
+
+def golden_set_hash(path: Path) -> str:
+    """Content hash of a golden file, normalised to LF so every checkout agrees."""
+    text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    return hashlib.blake2b(text.encode(), digest_size=6).hexdigest()
+
+
+def stale_chunk_refs(queries: list[GoldenQuery], indexed_ids: set[str]) -> dict[str, list[str]]:
+    """Golden chunk ids absent from the index.
+
+    `chunk_id` is a content hash, so editing a referenced chunk orphans the reference.
+    Scoring an orphan as a miss would report a retrieval regression that never happened,
+    so callers fail loudly instead.
+    """
+    stale: dict[str, list[str]] = {}
+    for query in queries:
+        missing = sorted(set(query.relevant_chunk_ids) - indexed_ids)
+        if missing:
+            stale[query.id] = missing
+    return stale

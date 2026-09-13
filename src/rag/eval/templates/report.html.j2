@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eval report {{ r.provenance.corpus_commit }}</title>
+<style>
+body{font:14px/1.5 system-ui,sans-serif;max-width:1100px;margin:2rem auto;padding:0 1rem;color:#1b1b1b}
+table{border-collapse:collapse;margin:.5rem 0 1.5rem}
+td,th{border:1px solid #ccc;padding:.25rem .6rem;text-align:right;vertical-align:top}
+td:first-child,th:first-child{text-align:left}
+.fail{color:#b00020;font-weight:600}.pass{color:#1b6e20}.not_run{color:#777}
+.warn{background:#fff4e5;padding:.5rem 1rem;border-left:4px solid #e69500}
+details{border:1px solid #ddd;margin:.3rem 0;padding:.3rem .6rem}
+pre{white-space:pre-wrap;background:#f6f6f6;padding:.5rem}
+</style>
+</head>
+<body>
+<h1>Evaluation report</h1>
+<p>{{ r.created_at }} · schema v{{ r.schema_version }}</p>
+
+<h2>Provenance</h2>
+<table>
+{% for key, value in r.provenance.items() %}
+<tr><td>{{ key }}</td><td>{{ value }}</td></tr>
+{% endfor %}
+</table>
+{% if b and b.provenance.golden_set_hash != r.provenance.golden_set_hash %}
+<p class="warn">The baseline used a different golden set ({{ b.provenance.golden_set_hash }}). Deltas are not comparable.</p>
+{% endif %}
+
+{% if gate %}
+<h2>Regression gate: <span class="{{ 'pass' if gate.passed else 'fail' }}">{{ 'PASS' if gate.passed else 'FAIL' }}</span></h2>
+{% if gate.error %}<p class="fail">{{ gate.error }}</p>{% endif %}
+<table>
+<tr><th>Metric</th><th>Baseline</th><th>Current</th><th>Δ</th><th>Max drop</th><th>Status</th></tr>
+{% for c in gate.checks %}
+<tr><td>{{ c.metric }}</td><td>{{ fmt(c.baseline) }}</td><td>{{ fmt(c.current) }}</td><td>{{ fmt(c.delta, True) }}</td><td>{{ fmt(c.max_drop) }}</td><td class="{{ c.status }}">{{ c.status }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
+{% macro halves_table(title, rows) %}
+<h2>{{ title }}</h2>
+<p>Hand-authored and synthetic queries are scored separately and never pooled. Synthetic questions are generated from the chunk that answers them, so they run easier.</p>
+<table>
+<tr><th>Metric</th>{% for h in halves %}<th>{{ h }}</th><th>Δ vs baseline</th>{% endfor %}</tr>
+{% for row in rows %}
+<tr><td>{{ row.metric }}</td>{% for h in halves %}<td>{{ fmt(row[h]) }}</td><td>{{ fmt(row[h ~ '_delta'], True) }}</td>{% endfor %}</tr>
+{% endfor %}
+</table>
+{% endmacro %}
+
+{% if r.tier_a %}
+{{ halves_table("Tier A — retrieval (zero LLM)", tier_a_rows) }}
+<p>Reranked: {{ r.tier_a.reranked }} · reranker lift: {{ fmt(r.tier_a.reranker_lift, True) }} · scored queries: {{ r.tier_a.scored_queries }}</p>
+{% for q in r.tier_a.per_query %}
+<details><summary>{{ q.id }} ({{ q.provenance }}) — recall@5 {{ fmt(q.scores.get('recall@5')) }}</summary>
+<p>{{ q.query }}</p>
+<pre>{{ q.retrieved | join('\n') }}</pre>
+</details>
+{% endfor %}
+{% endif %}
+
+{% if r.tier_b %}
+{{ halves_table("Tier B — generation (zero-LLM scoring)", tier_b_rows) }}
+<table>
+<tr><th>Half</th><th>Counts</th></tr>
+{% for h in halves %}<tr><td>{{ h }}</td><td>{{ r.tier_b.counts.get(h) }}</td></tr>{% endfor %}
+</table>
+<p>Citation recall treats every sentence as a claim — a stated simplification (ADR-024).</p>
+{% for q in r.tier_b.per_query %}
+<details><summary>{{ q.id }} ({{ q.provenance }}) — {{ q.refusal_outcome }}{% if q.groundedness is defined %} · groundedness {{ fmt(q.groundedness) }}{% endif %}</summary>
+<p><strong>{{ q.query }}</strong></p>
+<pre>{{ q.answer }}</pre>
+{% if q.sentences %}
+<table>
+<tr><th>Sentence</th><th>Support by cited chunk</th></tr>
+{% for s in q.sentences %}<tr><td>{{ s.text }}</td><td>{{ s.support }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+</details>
+{% endfor %}
+{% endif %}
+
+{% if r.tier_c %}
+<h2>Tier C — LLM-judged (opt-in)</h2>
+<p class="warn">Judge: <strong>{{ r.provenance.judge }}</strong>. These numbers mean something different for every judge, and a local 3B judge correlates poorly with human judgement.</p>
+<pre>{{ r.tier_c | tojson(indent=2) }}</pre>
+{% endif %}
+
+{% if r.adversarial %}
+<h2>Adversarial suite</h2>
+<p>Attack success and false refusal are reported together, always.</p>
+<table>
+<tr><td>Attacks that got through</td><td>{{ r.adversarial.attack_successes }} / {{ r.adversarial.attack_cases }}</td></tr>
+<tr><td>Benign controls falsely refused</td><td>{{ r.adversarial.false_refusals }} / {{ r.adversarial.benign_cases }}</td></tr>
+</table>
+{% endif %}
+</body>
+</html>

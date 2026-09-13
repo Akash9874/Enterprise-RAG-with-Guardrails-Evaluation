@@ -4,6 +4,12 @@ models:
   embedder: BAAI/bge-small-en-v1.5
   reranker: cross-encoder/ms-marco-MiniLM-L-6-v2
   generator: qwen2.5:3b-instruct-q4_K_M
+  groundedness: vectara/hallucination_evaluation_model
+  # trust_remote_code model: pinned to the snapshot the ADR-021 thresholds were measured on.
+  # Change it deliberately, re-measure the thresholds, and record why (ADR-028).
+  groundedness_revision: 8e4a2e6e96c708cc76c2344f7e4757df2515292c
+  # Tier B BERTScore. 268 MB; bert-score's deberta-xlarge-mnli is 3,036 MB (ADR-024).
+  bertscore: distilbert/distilbert-base-uncased
   registry_max_resident: 4
 
 retrieval:
@@ -12,6 +18,11 @@ retrieval:
   k_fuse: 30               # MEASURED: no effect on top-5 with rerank off (ADR-003)
   k_final: 5               # UNMEASURED
   rrf_k: 60                # conventional RRF constant
+  # MEASURED 2026-09-12: in-corpus and out-of-corpus top-1 fused scores fully overlap
+  # (both reach 1.000), so no floor on this score can detect an out-of-scope question.
+  # Guards the genuinely-empty case only. Out-of-scope refusal is the Phase 3
+  # topicality rail's job. See ADR-015.
+  relevance_floor: 0.0
   context_budget_tokens: 2400
   # MEASURED 2026-09-11: reranking cost ~2.3 s/query and lift was negative at every
   # k_fuse (-0.106 at 30). Fusion-only scores NDCG@5 0.752 vs 0.646. See ADR-003.
@@ -25,3 +36,27 @@ qdrant:
 ollama:
   host: http://localhost:11434
   temperature: 0.0         # deterministic; required for reproducible eval
+
+ingest:
+  # POST /ingest takes one of these keys, never a path (an arbitrary-directory read primitive).
+  sources:
+    self: .
+  state_path: .rag_state/last_ingest.json
+
+judge:
+  # Tier C only (opt-in, `uv sync --extra judge`). Any OpenAI-compatible endpoint; the
+  # default is local Ollama, so Tier C costs nothing (NFR-9). Override with RAG_JUDGE__*.
+  base_url: http://localhost:11434/v1
+  api_key_env: RAG_JUDGE_API_KEY
+
+eval:
+  golden_path: eval/golden/golden.yaml
+  bertscore_layer: 5         # bert-score's default num_layers for distilbert-base-uncased
+  baseline_path: eval/baselines/baseline.json   # written only by `rag eval promote-baseline`
+  reports_dir: eval/reports
+  # FR-E7: maximum absolute drop (0-1 scale) per gated metric, per provenance half (ADR-025).
+  gate_max_drop:
+    "tier_a.by_provenance.hand.recall@5": 0.02
+    "tier_a.by_provenance.synthetic.recall@5": 0.02
+    "tier_b.by_provenance.hand.groundedness": 0.03
+    "tier_b.by_provenance.synthetic.groundedness": 0.03

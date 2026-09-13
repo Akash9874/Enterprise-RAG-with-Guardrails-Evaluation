@@ -1,0 +1,74 @@
+# Guardrail policy. Rails run in ascending cost order and short-circuit on a terminal
+# verdict. Every threshold here should be justified by a number from the eval harness;
+# those not yet measured are marked UNMEASURED and are placeholders until they are.
+#
+# t_pass .. t_block is the escalation band — the interval where a rail admits it does
+# not know. Widening it raises accuracy and raises latency (NFR-3 caps escalation at
+# 10% of golden-set queries).
+
+escalation_budget_ms: 5000      # UNMEASURED — caps total T3 work per request (FR-GR7)
+
+rails:
+  # --- T0: deterministic, microseconds ---
+  input_heuristics:
+    enabled: true
+    action: block
+    on_error: closed
+    max_query_chars: 4000       # UNMEASURED
+
+  pii_input:
+    enabled: true
+    action: redact
+    on_error: closed            # safety rail — fails closed
+    entities: [EMAIL_ADDRESS, PHONE_NUMBER, CREDIT_CARD, IBAN_CODE, US_SSN]
+    # MEASURED 2026-09-12 (ADR-020): Presidio scores a validated email or card at 1.0
+    # but a plausible-but-unvalidated phone number at exactly 0.40, so the original 0.50
+    # silently missed every phone number. Lowering to 0.40 costs nothing measurable:
+    # 0/28 real code questions produce any detection at any threshold down to 0.30.
+    t_block: 0.4
+
+  # --- T1: small encoder classifiers, ~10-40 ms ---
+  injection_input:
+    enabled: true
+    action: block
+    on_error: closed            # safety rail — fails closed
+    t_pass: 0.30                # UNMEASURED
+    t_block: 0.80               # UNMEASURED
+
+  topicality:
+    enabled: true
+    action: refuse
+    on_error: open              # quality rail — degrades, never denies on error
+    # MEASURED 2026-09-12 (ADR-019): cosine to the corpus centroid over 28 in-corpus
+    # golden queries vs 12 out-of-corpus controls. The distributions overlap slightly
+    # (lowest in-corpus 0.564, highest out-of-corpus 0.644), so these are a deliberate
+    # trade, not a clean cut:
+    #   t_block 0.55 -> 0/28 false refusals, 10/12 (83%) out-of-scope refused
+    #   t_pass  0.65 -> 25/28 in-corpus pass cleanly, 0/12 out-of-scope reach "pass"
+    # The 5 queries landing in the band hedge rather than resolve, by design.
+    t_pass: 0.65
+    t_block: 0.55
+
+  # --- Output rails ---
+  pii_output:
+    enabled: true
+    action: redact
+    on_error: closed            # safety rail — fails closed
+    entities: [EMAIL_ADDRESS, PHONE_NUMBER, CREDIT_CARD, IBAN_CODE, US_SSN]
+    t_block: 0.4                # same measurement as pii_input (ADR-020)
+
+  groundedness:
+    enabled: true
+    action: hedge               # quality rail: degrades the answer, never denies it
+    on_error: open
+    # MEASURED 2026-09-12 (ADR-021, ADR-022) over 10 answerable and 4 unanswerable
+    # questions, scoring each sentence against each retrieved chunk and taking the max:
+    #   answerable   0.075 0.109 0.437 0.509 0.527 0.616 0.876 0.900 0.940 0.952
+    #   unanswerable 0.077 0.127 0.148 0.455
+    # They overlap, so these are a trade rather than a cut:
+    #   t_block 0.30 -> hedges 2/10 answerable, catches 3/4 unanswerable
+    #   t_pass  0.50 -> 7/10 answerable pass cleanly, 0/4 unanswerable do
+    #   band (0.30, 0.50) -> 1/10 escalates to T3, which is NFR-3's 10% cap exactly
+    t_pass: 0.50
+    t_block: 0.30
+    escalate: true              # the ONLY rail permitted to set this (FR-GR4)

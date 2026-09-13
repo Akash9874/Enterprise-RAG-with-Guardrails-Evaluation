@@ -4,23 +4,25 @@ from __future__ import annotations
 
 import contextlib
 import sys
+import time
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from rag.config import get_settings
+from rag.cli_eval import eval_app
+from rag.config import get_settings, project_path
+from rag.contracts import RailContext
 from rag.eval.golden import load_golden
-from rag.eval.runner import run_tier_a
+from rag.guardrails.factory import build_pipeline, cached_centroid_provider
+from rag.guardrails.policy import load_policy
+from rag.guardrails.rails.injection import InjectionRail
 from rag.index.qdrant_store import QdrantStore
-from rag.ingest.pipeline import build_chunks
+from rag.ingest.service import run_ingest, save_summary
 from rag.models.embedder import Embedder
-from rag.retrieval.hybrid import HybridRetriever
-from rag.retrieval.rerank import CrossEncoderReranker
 
 app = typer.Typer(help="Enterprise RAG — ingest, retrieve, evaluate.")
-eval_app = typer.Typer(help="Evaluation harness.")
 app.add_typer(eval_app, name="eval")
 
 # Windows consoles default to cp1252, which cannot encode the metric symbols this
@@ -36,66 +38,96 @@ console = Console()
 def ingest(
     source: str = typer.Option(".", help="Directory to index."),
     recreate: bool = typer.Option(False, help="Drop and rebuild the collection first."),
-) -> None:
-    settings = get_settings()
-    chunks, stats = build_chunks(Path(source))
-
-    store = QdrantStore(settings)
-    store.ensure_collection(recreate=recreate)
-    upserted = store.upsert_chunks(chunks, Embedder(settings))
-
-    console.print(
-        f"[green]Ingested[/green] {stats.files} files -> {stats.chunks} chunks "
-        f"({upserted} upserted, {stats.skipped} skipped) in {stats.duration_s:.1f}s"
-    )
-
-
-@eval_app.command("retrieval")
-def eval_retrieval(
-    golden: str = typer.Option("eval/golden/retrieval.yaml", help="Golden set path."),
-    k: int = typer.Option(5, help="Cutoff for @k metrics."),
-    lift: bool | None = typer.Option(
-        None,
-        "--lift/--no-lift",
-        help="Measure reranker lift. Costs a second retrieval pass over every query. "
-        "Defaults to on only when reranking is enabled.",
+    scan: bool = typer.Option(
+        True,
+        "--scan/--no-scan",
+        help="Scan chunks for prompt injection and quarantine those above t_block (FR-I7).",
     ),
 ) -> None:
+    """Index a directory into Qdrant, scanning each chunk for prompt injection (FR-I7).
+
+    Every chunk is stamped with the commit of the tree it came from, so eval provenance is
+    read back from the index (ADR-026). Use --recreate to drop stale chunks from earlier runs.
+    """
     settings = get_settings()
-    queries = load_golden(Path(golden))
+    scorer = None
+    threshold = 0.8
+    if scan:
+        policy = load_policy().for_rail("injection_input")
+        scorer = InjectionRail(policy).score_texts
+        threshold = policy.t_block or 0.8
 
-    measure_lift = settings.retrieval.rerank_enabled if lift is None else lift
-    retriever = HybridRetriever(
-        settings,
-        QdrantStore(settings),
-        Embedder(settings),
-        CrossEncoderReranker(settings),
+    summary = run_ingest(
+        Path(source),
+        store=QdrantStore(settings),
+        embedder=Embedder(settings),
+        recreate=recreate,
+        scorer=scorer,
+        threshold=threshold,
     )
-    result = run_tier_a(queries, retriever, settings, k=k, measure_lift=measure_lift)
+    save_summary(summary, project_path(settings.ingest.state_path))
 
-    stage = "dense+sparse RRF, reranked" if result.reranked else "dense+sparse RRF"
-    table = Table(title=f"Tier A — retrieval ({result.scored_queries} queries, {stage})")
-    table.add_column("Metric")
-    table.add_column("Overall", justify="right")
-    table.add_column("Hand", justify="right")
-    table.add_column("Synthetic", justify="right")
-
-    for metric in sorted(result.overall):
-        table.add_row(
-            metric,
-            f"{result.overall[metric]:.3f}",
-            f"{result.by_provenance['hand'].get(metric, 0.0):.3f}",
-            f"{result.by_provenance['synthetic'].get(metric, 0.0):.3f}",
-        )
-    console.print(table)
-    if result.reranker_lift is None:
-        console.print("[dim]Reranker lift not measured (--lift to measure). See ADR-003.[/dim]")
-    else:
-        console.print(f"[bold]Reranker lift (ΔNDCG@{k}):[/bold] {result.reranker_lift:+.4f}")
     console.print(
-        f"[dim]corpus={result.provenance['corpus_commit']} "
-        f"config={result.provenance['config_hash']}[/dim]"
+        f"[green]Ingested[/green] {summary.files} files -> {summary.chunks} chunks "
+        f"({summary.upserted} upserted, {summary.skipped} skipped) in {summary.duration_s:.1f}s"
     )
+    if summary.scan == "skipped":
+        console.print("[yellow]Injection scan skipped[/yellow] (--no-scan)")
+    elif summary.scan == "failed":
+        console.print("[red]Injection scan failed[/red] — chunks indexed without quarantine")
+    else:
+        console.print(f"[dim]Injection scan: {summary.quarantined} chunk(s) quarantined[/dim]")
+
+
+@app.command()
+def bench(
+    golden: str | None = typer.Option(
+        None, help="Queries to benchmark (default: settings.eval.golden_path)."
+    ),
+) -> None:
+    """Time the INPUT guardrail rails; exit 1 if their p50 exceeds 300 ms.
+
+    A subset of NFR-2, which counts all rails. The output groundedness rail costs ~14 s per
+    typical answer on this CPU and is not timed here, so NFR-2 as defined is not met
+    (ADR-029). NFR-3, the escalation rate, is not measured by this command.
+    """
+    settings = get_settings()
+    path = Path(golden) if golden else project_path(settings.eval.golden_path)
+    queries = [q.query for q in load_golden(path)]
+    pipeline = build_pipeline(
+        settings,
+        load_policy(),
+        embedder=Embedder(settings),
+        centroid_provider=cached_centroid_provider(),
+        judge=None,
+    )
+
+    latencies: list[float] = []
+    for query in queries:
+        started = time.perf_counter()
+        pipeline.run_input(RailContext(request_id="bench", query=query))
+        latencies.append((time.perf_counter() - started) * 1000)
+
+    latencies.sort()
+    p50 = latencies[len(latencies) // 2]
+    p95 = latencies[int(0.95 * (len(latencies) - 1))]
+
+    table = Table(title=f"Guardrail overhead ({len(queries)} queries, input rails)")
+    table.add_column("Metric")
+    table.add_column("Measured", justify="right")
+    table.add_column("Target", justify="right")
+    table.add_column("Verdict", justify="right")
+    table.add_row(
+        "input rails p50",
+        f"{p50:.0f} ms",
+        "<= 300 ms",
+        "[green]PASS[/green]" if p50 <= 300 else "[red]FAIL[/red]",
+    )
+    table.add_row("input rails p95", f"{p95:.0f} ms", "-", "")
+    console.print(table)
+    if p50 > 300:
+        console.print("[red]NFR-2 breached.[/red] Reported, not rounded down.")
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

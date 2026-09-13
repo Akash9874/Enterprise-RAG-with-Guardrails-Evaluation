@@ -5,6 +5,7 @@ Ollama-backed; the protocol keeps the rest of the codebase independent of it.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any, Protocol
 
 import ollama
@@ -17,6 +18,8 @@ log = structlog.get_logger(__name__)
 
 class LLMClient(Protocol):
     def generate(self, prompt: str, system: str | None = None) -> str: ...
+
+    def generate_stream(self, prompt: str, system: str | None = None) -> Iterator[str]: ...
 
     def is_ready(self) -> bool: ...
 
@@ -32,11 +35,15 @@ class OllamaClient:
             else ollama.Client(host=settings.ollama.host, timeout=settings.ollama.timeout_s)
         )
 
-    def generate(self, prompt: str, system: str | None = None) -> str:
+    def _messages(self, prompt: str, system: str | None) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
         if system is not None:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
+        return messages
+
+    def generate(self, prompt: str, system: str | None = None) -> str:
+        messages = self._messages(prompt, system)
 
         response = self._client.chat(
             model=self._settings.models.generator,
@@ -44,6 +51,24 @@ class OllamaClient:
             options={"temperature": self._settings.ollama.temperature},
         )
         return str(response["message"]["content"])
+
+    def generate_stream(self, prompt: str, system: str | None = None) -> Iterator[str]:
+        """Yield content deltas.
+
+        Streaming is not a nicety here: at 12-18 tok/s a 400-token answer takes ~30 s, and
+        a first token in 1-2 s is what keeps that tolerable (ADR-002). Output rails run on
+        the completed text, so callers must reassemble before enforcing anything.
+        """
+        stream = self._client.chat(
+            model=self._settings.models.generator,
+            messages=self._messages(prompt, system),
+            options={"temperature": self._settings.ollama.temperature},
+            stream=True,
+        )
+        for part in stream:
+            content = part["message"]["content"]
+            if content:
+                yield str(content)
 
     def is_ready(self) -> bool:
         try:

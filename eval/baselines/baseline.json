@@ -1,0 +1,583 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-09-13T12:34:04.434234Z",
+  "provenance": {
+    "corpus_commit": "07b032b",
+    "config_hash": "59933ac0",
+    "policy_hash": "df98055f",
+    "golden_set_hash": "4afaec80185b",
+    "golden_set": {
+      "hand": 34,
+      "synthetic": 0
+    },
+    "models": {
+      "embedder": "BAAI/bge-small-en-v1.5",
+      "reranker": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+      "generator": "qwen2.5:3b-instruct-q4_K_M",
+      "groundedness": "vectara/hallucination_evaluation_model",
+      "injection": "protectai/deberta-v3-base-prompt-injection-v2",
+      "bertscore": "distilbert/distilbert-base-uncased"
+    },
+    "judge": null,
+    "tier_c_enabled": false
+  },
+  "tier_a": {
+    "overall": {
+      "hit_rate@5": 0.75,
+      "mrr": 0.6428571428571429,
+      "ndcg@5": 0.6828889635904384,
+      "precision@5": 0.1642857142857143,
+      "recall@5": 0.6607142857142857
+    },
+    "by_provenance": {
+      "hand": {
+        "hit_rate@5": 0.75,
+        "mrr": 0.6428571428571429,
+        "ndcg@5": 0.6828889635904384,
+        "precision@5": 0.1642857142857143,
+        "recall@5": 0.6607142857142857
+      },
+      "synthetic": {}
+    },
+    "reranker_lift": null,
+    "reranked": false,
+    "scored_queries": 28,
+    "per_query": [
+      {
+        "id": "q-h001",
+        "query": "How does the retriever combine dense and sparse results?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 0.0,
+          "precision@5": 0.0,
+          "ndcg@5": 0.0,
+          "hit_rate@5": 0.0,
+          "mrr": 0.0
+        },
+        "retrieved": [
+          "b50df2798f3c7dfaa1d6b16fbe26b6da",
+          "676a7528c1f7682c8228ab432c750a6f",
+          "2ba38ebe6f8e6141724674924dacd3c4",
+          "78b7e125056111012e48f84e9d0104f3",
+          "66f8695df69af5132b5987c717b1d6cd"
+        ]
+      },
+      {
+        "id": "q-h002",
+        "query": "Why was bge-reranker-large rejected?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 0.6309297535714575,
+          "hit_rate@5": 1.0,
+          "mrr": 0.5
+        },
+        "retrieved": [
+          "bcb07423e6223c30717d38e51d92f2f3",
+          "533f0b2e7ec8ca00ecb6309cec20119e",
+          "aba20709caaaf1d9b936986f87cd2604",
+          "4442df70cf941148c1971713c573d393",
+          "2f1b9cc723e9b8725d6258b9b185b8bd"
+        ]
+      },
+      {
+        "id": "q-h003",
+        "query": "What keeps ingestion idempotent across runs?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 1.0,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "a699341dd9f8b6e813219d0b58b49471",
+          "835eacbc979670a05a4694e50f5e107e",
+          "5905fbc121d30e5f4d85816b698e6ac5",
+          "f096c32744bf59dfc0afb133a80ec638",
+          "40f112e0256fd6b609cc2b2117734ef2"
+        ]
+      },
+      {
+        "id": "q-h004",
+        "query": "How are markdown chunks given readable citations?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 0.9306765580733931,
+          "hit_rate@5": 1.0,
+          "mrr": 0.3333333333333333
+        },
+        "retrieved": [
+          "7984d02d08330ecb47461f7048106f7b",
+          "f096c32744bf59dfc0afb133a80ec638",
+          "ffc63e071c80ee28e4d977f8f624eedc",
+          "c1b3ba7ac9ac07cbe461646dfe857aea",
+          "a6d202cafa90021badac259b657e65b9"
+        ]
+      },
+      {
+        "id": "q-h005",
+        "query": "What prevents a transformer from loading at import time?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 1.0,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "bfa964852db99270c0fc19bd4d416c57",
+          "d24addbebf5958a6436b1ea79d24c557",
+          "f096c32744bf59dfc0afb133a80ec638",
+          "d41ac284c75c9ce6783b2f0aee889497",
+          "8f463d3693075d848a3964e2bbc5bd8e"
+        ]
+      },
+      {
+        "id": "q-h006",
+        "query": "Which files are skipped when walking the repository?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 1.0,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "c3e5d8b1ae10842a8a0009915df7579e",
+          "5136dbcaed624a8e1b6c24edd2dd89cc",
+          "e3e748fe977c98e72599254c63b068d3",
+          "eb6d8ae58f5de4e2bf4475b14c9c638a",
+          "a49be4c557182f30528b4e616a89e75b"
+        ]
+      },
+      {
+        "id": "q-h007",
+        "query": "How does the code chunker find function and class boundaries?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 1.0,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "5b44db447d23218c1a85c149d7804fb3",
+          "750dee29cd64f14da1fec3766d8599b4",
+          "25b356f2925e8d8b02a1272c123db45d",
+          "607806606ab1ea1eef955f73628e3ec4",
+          "cd434c8f4eb37351df092f016baf2424"
+        ]
+      },
+      {
+        "id": "q-h008",
+        "query": "What symbol path does a method inside a class get?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 0.0,
+          "precision@5": 0.0,
+          "ndcg@5": 0.0,
+          "hit_rate@5": 0.0,
+          "mrr": 0.0
+        },
+        "retrieved": [
+          "8704978fad3d3afdb89c968a89f72339",
+          "40f112e0256fd6b609cc2b2117734ef2",
+          "4290115ca86051d0b32336cd1946c6fb",
+          "182458381d9e9fe889a0b20191d9a52a",
+          "750dee29cd64f14da1fec3766d8599b4"
+        ]
+      },
+      {
+        "id": "q-h009",
+        "query": "Why do sparse vectors use the IDF modifier?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 1.4306765580733931,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "37240c7480c42b57517a814a94fd06ee",
+          "705b8ab003c4e672330a9f28d30e2d33",
+          "15d623c36f2a253124b0d58ee89db4fe",
+          "5897834aac4d48347569e121c1f2fb1f",
+          "62d056f41562cadfdeccc8a649a1609c"
+        ]
+      },
+      {
+        "id": "q-h010",
+        "query": "How is a Qdrant point id derived from a chunk id?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 1.0,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "0ff8f1fd9893feb0afb3c91279c3f958",
+          "298caae86bcc05966aa7f664404a2e30",
+          "2891cc02e7a3ad6d255f60e2a40db59d",
+          "a699341dd9f8b6e813219d0b58b49471",
+          "ca6cfd7f292a5e1a07a7dd76d6d27b53"
+        ]
+      },
+      {
+        "id": "q-h011",
+        "query": "What instruction prefix do bge models need, and on what?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 1.0,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "756b755ecb0e694e5408a71a19fdd6f9",
+          "ef43b15fca4f514f2d314f704e002d03",
+          "1b167e8a70b5b1948b5a8b7851fbbe45",
+          "654f14907567988f3a79c168dd88be83",
+          "93735168e0834076bf6e2845ec2e7906"
+        ]
+      },
+      {
+        "id": "q-h012",
+        "query": "How does the health endpoint report dependency readiness?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 1.0,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "cb87c9faf537b6587ffca7c21307454b",
+          "f58f7cbf06b85af5ad7615a4da204c25",
+          "e1a4edecedadf6df930a0eedd081be0d",
+          "9f770f44518fc551adc4da8dfceb8cde",
+          "5cd02c5f2b9bfbbd46c5a07d32ed6504"
+        ]
+      },
+      {
+        "id": "q-h013",
+        "query": "How is configuration layered between YAML, env vars and defaults?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 1.6309297535714575,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "eb0e33ae0fd7cb24955cac7f32ce0a38",
+          "5fc4745be2b8ecde71877aa1e2b58a77",
+          "c8e4a9cfd349f5182f0822bdf6185f01",
+          "67d800409b1875276b4dce80f5ebd2f1",
+          "3201399b3dd3bb2f62acf85992710aa2"
+        ]
+      },
+      {
+        "id": "q-h014",
+        "query": "What is the resident memory budget for models?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 0.5,
+          "precision@5": 0.2,
+          "ndcg@5": 0.6131471927654584,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "49a0e0b2919c6d641cfa3a98cf1ec5f1",
+          "bfa964852db99270c0fc19bd4d416c57",
+          "a15b58c319792749c14874c582a32afb",
+          "0f28ae01f20ac1ec240410fae57ef939",
+          "7bbaa9275b5dac817436f64306e1dcde"
+        ]
+      },
+      {
+        "id": "q-h015",
+        "query": "How does context assembly enforce the token budget?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 0.5,
+          "hit_rate@5": 1.0,
+          "mrr": 0.3333333333333333
+        },
+        "retrieved": [
+          "f003739ff5920f1e1ea9815417bdc345",
+          "225c569fbb2c8eccba12cb720e94862a",
+          "4e47a8b2270692f25bf9974df5bc1fde",
+          "76643aa9ea526e6f7b6c1d4f5168700d",
+          "0445658f7b4432c132f178af3b32c49e"
+        ]
+      },
+      {
+        "id": "q-h016",
+        "query": "Why are chunks never truncated mid-text?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 0.5,
+          "precision@5": 0.2,
+          "ndcg@5": 0.6131471927654584,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "f003739ff5920f1e1ea9815417bdc345",
+          "b3861c7b660037914630006acba64f3d",
+          "0445658f7b4432c132f178af3b32c49e",
+          "351af1534b646f5a20425c9941c05104",
+          "750dee29cd64f14da1fec3766d8599b4"
+        ]
+      },
+      {
+        "id": "q-h017",
+        "query": "How is reranker lift defined and measured?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 0.0,
+          "precision@5": 0.0,
+          "ndcg@5": 0.0,
+          "hit_rate@5": 0.0,
+          "mrr": 0.0
+        },
+        "retrieved": [
+          "aba20709caaaf1d9b936986f87cd2604",
+          "68bc45580b7eda78bf950b1827de7a79",
+          "bcb07423e6223c30717d38e51d92f2f3",
+          "1843b93cd7ac829c5af83479151afe8a",
+          "472dbb5659e23fb8fc50360d518494a4"
+        ]
+      },
+      {
+        "id": "q-h018",
+        "query": "Why are hand-authored and synthetic golden queries never pooled?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.4,
+          "ndcg@5": 0.9197207891481876,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "62233de19dae023e22cb011ab172c5d9",
+          "16448fd4acff830df939c49827569e7e",
+          "d9cb9dff9d4f8055d1f69b135b3ce1ed",
+          "87f909c08b801a7ea1a34c15d24c5d06",
+          "f096c32744bf59dfc0afb133a80ec638"
+        ]
+      },
+      {
+        "id": "q-h019",
+        "query": "What must every evaluation report carry to be valid?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 0.5,
+          "precision@5": 0.2,
+          "ndcg@5": 0.6240505200038379,
+          "hit_rate@5": 1.0,
+          "mrr": 0.5
+        },
+        "retrieved": [
+          "74c73eb8d33f1161b215a4b503185eef",
+          "ff64c218e87c25d0ca21bc7f634d342d",
+          "55851390cc90f7aedddb098b69fd1763",
+          "3f9b02f1ef27a05f283428c95de851f6",
+          "f057c9e28c23c0839852e7d0865b21a6"
+        ]
+      },
+      {
+        "id": "q-h020",
+        "query": "How is NDCG at k computed, and where are the off-by-one errors?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 1.4306765580733931,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "f6042dc2234a9b2bc234459cbfba1eec",
+          "9c2529abdc0c4b974856ae786e554f26",
+          "a7f04ca34b7a45b3f700d71e86622a18",
+          "98b7f3c54efb58ca98ab07ff661dc922",
+          "6406ff47e303bfbed35ba59a12608fd7"
+        ]
+      },
+      {
+        "id": "q-h021",
+        "query": "How does the LLM client talk to Ollama?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 0.0,
+          "precision@5": 0.0,
+          "ndcg@5": 0.0,
+          "hit_rate@5": 0.0,
+          "mrr": 0.0
+        },
+        "retrieved": [
+          "c13ac893430f45b200af0babdd52dcbb",
+          "9988b3c8ae88711aee0216cdc4c7926e",
+          "9e3ace9348508b2b75a062ca781c5518",
+          "7e58a2d6ce1fe654f919bfa8d3f51f81",
+          "604737db6a19f9548bcabaabdb9abd41"
+        ]
+      },
+      {
+        "id": "q-h022",
+        "query": "What are the default k values for retrieval?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 0.5,
+          "precision@5": 0.2,
+          "ndcg@5": 0.3065735963827292,
+          "hit_rate@5": 1.0,
+          "mrr": 0.3333333333333333
+        },
+        "retrieved": [
+          "1b167e8a70b5b1948b5a8b7851fbbe45",
+          "c37a607ee1743ffaca07757f96a0e41a",
+          "bb7de905c9701e2a0d22bfc22e7c7da5",
+          "6c5078e6139a061ae0617d3a26481829",
+          "68bc45580b7eda78bf950b1827de7a79"
+        ]
+      },
+      {
+        "id": "q-h023",
+        "query": "Why is fusion done server-side instead of in Python?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.2,
+          "ndcg@5": 1.0,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "1c3098164a0a0d49f46504a653426929",
+          "fb48c0c9b0de92406fa0b1aadcb58d1b",
+          "bd69c41ac91c395b49f0470abffd68b5",
+          "330f28d76be1f6139616495ff8851284",
+          "2262549311dfd83dd5e3d39e333ddedb"
+        ]
+      },
+      {
+        "id": "q-h024",
+        "query": "How are quarantined chunks handled during retrieval?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 0.5,
+          "precision@5": 0.2,
+          "ndcg@5": 0.6131471927654584,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "54dbe88ba4eacb1e5fe53c09d882e62c",
+          "6d7bb3675f62d2d0c1debe6c0f4923c4",
+          "c71f7e45118f545de9d5aea85b29b334",
+          "190618331e8fc54946cf4c7654478166",
+          "40f112e0256fd6b609cc2b2117734ef2"
+        ]
+      },
+      {
+        "id": "q-h025",
+        "query": "Why is a guardrail refusal returned as HTTP 200?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 0.0,
+          "precision@5": 0.0,
+          "ndcg@5": 0.0,
+          "hit_rate@5": 0.0,
+          "mrr": 0.0
+        },
+        "retrieved": [
+          "e96977bde67415090e27e6f4a76b4b4d",
+          "ae63dc2018a967c52ba51de24f8eede3",
+          "d857aad1ff57c3b8c9a069063c1116b1",
+          "7ed7cf02bb07c31d5b5b948f33c3b96d",
+          "63f16029050a9e3a16156eae98c9ee6b"
+        ]
+      },
+      {
+        "id": "q-h026",
+        "query": "How does the ingestion pipeline deduplicate chunks?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 0.0,
+          "precision@5": 0.0,
+          "ndcg@5": 0.0,
+          "hit_rate@5": 0.0,
+          "mrr": 0.0
+        },
+        "retrieved": [
+          "7a6031db5b204c655961fd1129bcf2d7",
+          "f32df2d2b7d71c830e1e1655a84d22aa",
+          "f003739ff5920f1e1ea9815417bdc345",
+          "b53103e6e8e6ad873bb0ea13a8cfd5c8",
+          "4adeea2c08e455d7b5053e4710745bb3"
+        ]
+      },
+      {
+        "id": "q-h027",
+        "query": "What ties are broken deterministically in retrieval ordering?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 1.0,
+          "precision@5": 0.4,
+          "ndcg@5": 0.8772153153380493,
+          "hit_rate@5": 1.0,
+          "mrr": 1.0
+        },
+        "retrieved": [
+          "ef43b15fca4f514f2d314f704e002d03",
+          "daa3307a24fee7b32f6bfd7e1a9ce5c8",
+          "964f44a877362f986d6e4baf1f905278",
+          "03654d6b3d24266801a2c0f50dc7fdda",
+          "8adf46009f14765ace1d5f46b7c8e430"
+        ]
+      },
+      {
+        "id": "q-h028",
+        "query": "Which Python version is pinned and why not the system Python?",
+        "provenance": "hand",
+        "scores": {
+          "recall@5": 0.0,
+          "precision@5": 0.0,
+          "ndcg@5": 0.0,
+          "hit_rate@5": 0.0,
+          "mrr": 0.0
+        },
+        "retrieved": [
+          "9acd31ac52301563fbc9ac0973721c62",
+          "fc8a44a5e4c0eef9b82b3d9101aca40f",
+          "73a5b27f1d31432a4052d37f2edc258c",
+          "1b167e8a70b5b1948b5a8b7851fbbe45",
+          "cac899306785ba93fdff56ee5186be26"
+        ]
+      }
+    ]
+  },
+  "tier_b": null,
+  "tier_c": null,
+  "adversarial": null
+}
