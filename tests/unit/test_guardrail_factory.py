@@ -65,3 +65,11 @@ def test_building_the_pipeline_loads_no_model() -> None:
     for rail in pipeline._input_rails + pipeline._output_rails:  # type: ignore[attr-defined]
         for attribute in ("_analyzer", "_classifier", "_hhem"):
             assert getattr(rail, attribute, None) is None
+
+
+def test_groundedness_rail_gets_its_model_and_revision_from_settings() -> None:
+    """Never a hardcoded model name (CLAUDE.md), and remote code is always pinned."""
+    settings = Settings()
+    rail = next(r for r in _pipeline()._output_rails if r.name == "groundedness")  # type: ignore[attr-defined]
+    assert rail._model_name == settings.models.groundedness  # type: ignore[attr-defined]
+    assert rail._revision == settings.models.groundedness_revision  # type: ignore[attr-defined]

@@ -45,6 +45,8 @@ def build_pipeline(
             policy.for_rail("groundedness"),
             judge=judge,
             escalation_budget_ms=policy.escalation_budget_ms,
+            model_name=settings.models.groundedness,
+            revision=settings.models.groundedness_revision,
         ),
     ]
     return GuardrailPipeline(policy, input_rails, output_rails)

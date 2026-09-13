@@ -4,6 +4,10 @@ models:
   embedder: BAAI/bge-small-en-v1.5
   reranker: cross-encoder/ms-marco-MiniLM-L-6-v2
   generator: qwen2.5:3b-instruct-q4_K_M
+  groundedness: vectara/hallucination_evaluation_model
+  # trust_remote_code model: pinned to the snapshot the ADR-021 thresholds were measured on.
+  # Change it deliberately, re-measure the thresholds, and record why (ADR-028).
+  groundedness_revision: 8e4a2e6e96c708cc76c2344f7e4757df2515292c
   # Tier B BERTScore. 268 MB; bert-score's deberta-xlarge-mnli is 3,036 MB (ADR-024).
   bertscore: distilbert/distilbert-base-uncased
   registry_max_resident: 4

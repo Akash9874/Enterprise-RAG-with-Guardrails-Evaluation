@@ -64,26 +64,32 @@ class GroundednessRail:
         hhem: Any | None = None,
         judge: Any | None = None,
         escalation_budget_ms: int = 5000,
+        model_name: str = MODEL_NAME,
+        revision: str | None = None,
     ) -> None:
         self._policy = policy
         self._hhem = hhem
         self._judge = judge
         self._budget_ms = escalation_budget_ms
+        self._model_name = model_name
+        self._revision = revision
 
     @property
     def hhem(self) -> Any:
         if self._hhem is None:
             from transformers import AutoModelForSequenceClassification
 
+            # trust_remote_code runs Python from the model repository, so the revision is
+            # pinned: an unpinned load executes whatever the repo serves that day (ADR-028).
             self._hhem = AutoModelForSequenceClassification.from_pretrained(
-                MODEL_NAME, trust_remote_code=True
+                self._model_name, revision=self._revision, trust_remote_code=True
             )
-            log.info("hhem_loaded", model=MODEL_NAME)
+            log.info("hhem_loaded", model=self._model_name, revision=self._revision)
         return self._hhem
 
     def check(self, ctx: RailContext) -> RailResult:
         with timed() as elapsed:
-            evidence: dict[str, Any] = {"model": MODEL_NAME}
+            evidence: dict[str, Any] = {"model": self._model_name}
             sentences = split_sentences(ctx.answer or "")
             if not sentences:
                 return RailResult(

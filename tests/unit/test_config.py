@@ -22,6 +22,15 @@ def test_ingest_source_can_be_overridden_by_env(monkeypatch: pytest.MonkeyPatch)
     assert load_settings().ingest.sources["self"] == "/corpus"
 
 
+def test_remote_code_model_is_pinned_to_a_full_commit_sha() -> None:
+    # HHEM loads with trust_remote_code. A branch name like "main" would not pin anything.
+    import re
+
+    revision = Settings().models.groundedness_revision
+    assert re.fullmatch(r"[0-9a-f]{40}", revision)
+    assert load_settings().models.groundedness_revision == revision  # YAML agrees
+
+
 def test_ingest_sources_are_keys_not_paths_by_default() -> None:
     assert Settings().ingest.sources == {"self": "."}
 

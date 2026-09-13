@@ -35,6 +35,7 @@ class HHEMSupportScorer:
 
     def __init__(self, settings: Settings, model: Any | None = None) -> None:
         self._name = settings.models.groundedness
+        self._revision = settings.models.groundedness_revision
         self._model = model
 
     @property
@@ -42,10 +43,11 @@ class HHEMSupportScorer:
         if self._model is None:
             from transformers import AutoModelForSequenceClassification
 
+            # Same pinned revision as the rail: the metric and the rail must be the same model.
             self._model = AutoModelForSequenceClassification.from_pretrained(
-                self._name, trust_remote_code=True
+                self._name, revision=self._revision, trust_remote_code=True
             )
-            log.info("hhem_loaded", model=self._name, purpose="tier_b")
+            log.info("hhem_loaded", model=self._name, revision=self._revision, purpose="tier_b")
         return self._model
 
     def score(

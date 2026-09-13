@@ -40,6 +40,29 @@ class StubJudge:
         return self._reply
 
 
+def test_hhem_loads_the_configured_model_at_its_pinned_revision() -> None:
+    # trust_remote_code executes Python fetched from the model repository. Without a
+    # pinned revision, whatever that repository serves today runs in the API process.
+    from unittest.mock import patch
+
+    policy = RailPolicy(action="hedge", t_pass=0.5, t_block=0.3)
+    rail = GroundednessRail(policy, model_name="org/hhem", revision="a" * 40)
+    with patch("transformers.AutoModelForSequenceClassification.from_pretrained") as load:
+        assert rail.hhem is load.return_value
+
+    load.assert_called_once_with("org/hhem", revision="a" * 40, trust_remote_code=True)
+
+
+def test_evidence_names_the_configured_model_not_a_hardcoded_one() -> None:
+    policy = RailPolicy(action="hedge", t_pass=0.5, t_block=0.3)
+    rail = GroundednessRail(policy, hhem=StubHHEM({}), model_name="org/hhem")
+    context = RailContext(
+        request_id="r", query="q", answer="A claim.", retrieved=[_chunk("c", "A claim.")]
+    )
+    result = rail.check(context)
+    assert result.evidence["model"] == "org/hhem"
+
+
 def _chunk(chunk_id: str, text: str) -> Retrieved:
     return Retrieved(
         chunk=Chunk(

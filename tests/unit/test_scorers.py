@@ -38,6 +38,21 @@ def test_hhem_scorer_pairs_each_cited_chunk_separately_and_strips_markers() -> N
     assert scored[2].support == {}  # a marker with no chunk text is not scored
 
 
+def test_hhem_scorer_loads_the_pinned_revision() -> None:
+    from unittest.mock import patch
+
+    settings = Settings()
+    scorer = HHEMSupportScorer(settings)
+    with patch("transformers.AutoModelForSequenceClassification.from_pretrained") as load:
+        assert scorer.model is load.return_value
+
+    load.assert_called_once_with(
+        settings.models.groundedness,
+        revision=settings.models.groundedness_revision,
+        trust_remote_code=True,
+    )
+
+
 def test_hhem_scorer_skips_the_model_when_nothing_is_cited() -> None:
     model = MagicMock()
     HHEMSupportScorer(Settings(), model=model).score([("Uncited.", [])], {})

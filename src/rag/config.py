@@ -45,6 +45,10 @@ class ModelSettings(BaseModel):
     reranker: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     generator: str = "qwen2.5:3b-instruct-q4_K_M"
     groundedness: str = "vectara/hallucination_evaluation_model"
+    # HHEM loads with trust_remote_code, which executes Python fetched from the model repo.
+    # Pinned to the snapshot every groundedness threshold was measured on (ADR-021, ADR-028);
+    # an unpinned load would run whatever that repository serves on the day.
+    groundedness_revision: str = "8e4a2e6e96c708cc76c2344f7e4757df2515292c"
     injection: str = "protectai/deberta-v3-base-prompt-injection-v2"
     # Tier B BERTScore. 268 MB; bert-score's deberta-xlarge-mnli is 3,036 MB (ADR-024).
     bertscore: str = "distilbert/distilbert-base-uncased"
