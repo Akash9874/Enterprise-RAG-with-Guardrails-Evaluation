@@ -1,6 +1,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from report_factories import make_report
 from typer.testing import CliRunner
 
@@ -143,6 +144,47 @@ def test_writing_a_report_never_touches_the_baseline(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.stdout
     assert out.exists()
     assert (baseline.stat().st_mtime_ns if baseline.exists() else None) == before
+
+
+def test_eval_all_writes_json_and_html_without_a_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rag.config import get_settings
+    from rag.eval.adversarial import AdversarialReport
+    from rag.eval.generation_runner import TierBResult
+    from rag.eval.runner import TierAResult
+
+    monkeypatch.setenv("RAG_EVAL__REPORTS_DIR", str(tmp_path / "reports"))
+    monkeypatch.setenv("RAG_EVAL__BASELINE_PATH", str(tmp_path / "no-baseline.json"))
+    get_settings.cache_clear()
+    tier_a = TierAResult(
+        overall={},
+        by_provenance={"hand": {"recall@5": 0.7}, "synthetic": {}},
+        reranker_lift=None,
+        scored_queries=1,
+    )
+    tier_b = TierBResult(
+        by_provenance={"hand": {"groundedness": 0.5}, "synthetic": {}},
+        counts={"hand": {"queries": 1}, "synthetic": {"queries": 0}},
+    )
+    try:
+        with (
+            patch("rag.cli_eval.QdrantStore") as store_cls,
+            patch("rag.cli_eval.build_retriever"),
+            patch("rag.cli_eval.run_tier_a", return_value=tier_a),
+            patch("rag.cli_eval.build_tier_b", return_value=tier_b),
+            patch("rag.cli_eval.build_adversarial", return_value=AdversarialReport()),
+            patch("rag.eval.provenance.corpus_commit", return_value="abc1234"),
+        ):
+            store_cls.return_value.chunk_ids.return_value = set()
+            result = runner.invoke(app, ["eval", "all", "--report"])
+    finally:
+        get_settings.cache_clear()
+
+    assert result.exit_code == 0, result.stdout
+    assert "no baseline" in result.stdout.lower()
+    written = sorted(p.suffix for p in (tmp_path / "reports").iterdir())
+    assert written == [".html", ".json"]
 
 
 def test_eval_retrieval_fails_clearly_on_a_missing_golden_set() -> None:

@@ -8,33 +8,24 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rag.config import Settings, get_settings, project_path
+from rag.config import get_settings, project_path
 from rag.eval.adversarial import DEFAULT_SUITE_PATH, load_suite
-from rag.eval.adversarial_runner import run_suite, run_suite_full
 from rag.eval.gate import GateResult, PromotionError, evaluate_gate, promote_baseline
-from rag.eval.generation_runner import TierBResult, run_tier_b
-from rag.eval.golden import GoldenQuery, load_golden, stale_chunk_refs
+from rag.eval.generation_runner import TierBResult
+from rag.eval.golden import load_golden, stale_chunk_refs
+from rag.eval.html import render_html
 from rag.eval.provenance import collect_provenance
-from rag.eval.report import EvalReport, load_report, write_report
+from rag.eval.report import EvalReport, default_report_path, load_report, write_report
 from rag.eval.runner import run_tier_a
-from rag.eval.scorers import HHEMSupportScorer, TokenEmbedder
 from rag.eval.synthesize import dump_golden, synthesize
-from rag.guardrails.factory import build_pipeline, cached_centroid_provider
-from rag.guardrails.policy import load_policy
+
+# Imported by name so tests can patch `rag.cli_eval.build_*` without touching live services.
+from rag.eval.wiring import build_adversarial, build_retriever, build_tier_b
 from rag.index.qdrant_store import QdrantStore
 from rag.index.schema import payload_to_chunk
-from rag.models.embedder import Embedder
-from rag.retrieval.hybrid import HybridRetriever
-from rag.retrieval.rerank import CrossEncoderReranker
 
 eval_app = typer.Typer(help="Evaluation harness.")
 console = Console()
-
-
-def build_retriever(settings: Settings) -> HybridRetriever:
-    return HybridRetriever(
-        settings, QdrantStore(settings), Embedder(settings), CrossEncoderReranker(settings)
-    )
 
 
 @eval_app.command("retrieval")
@@ -91,22 +82,6 @@ def eval_retrieval(
     if out:
         written = write_report(EvalReport(provenance=prov, tier_a=result), Path(out))
         console.print(f"[dim]report -> {written}[/dim]")
-
-
-def build_tier_b(settings: Settings, queries: list[GoldenQuery], progress: bool) -> TierBResult:
-    from rag.api.deps import get_guarded_answerer, get_policy
-
-    t_pass = get_policy().for_rail("groundedness").t_pass
-    if t_pass is None:
-        raise typer.BadParameter("groundedness t_pass must be set in config/guardrails.yaml")
-    return run_tier_b(
-        queries,
-        get_guarded_answerer(),
-        HHEMSupportScorer(settings),
-        TokenEmbedder(settings),
-        t_pass=t_pass,
-        progress=progress,
-    )
 
 
 def print_tier_b(result: TierBResult) -> None:
@@ -209,6 +184,57 @@ def eval_promote_baseline(
     )
 
 
+@eval_app.command("all")
+def eval_all(
+    html: bool = typer.Option(False, "--report", help="Also render the HTML report."),
+    full_adversarial: bool = typer.Option(
+        False, "--full-adversarial", help="Run the adversarial suite through generation."
+    ),
+    verbose: bool = typer.Option(False, "--verbose", help="Print each query as it runs."),
+) -> None:
+    """Tier A + Tier B + adversarial -> one report, gated against the baseline if one exists."""
+    settings = get_settings()
+    path = project_path(settings.eval.golden_path)
+    queries = load_golden(path)
+    stale = stale_chunk_refs(queries, QdrantStore(settings).chunk_ids())
+    if stale:
+        console.print(f"[red]Stale golden references[/red]: {stale}")
+        raise typer.Exit(code=2)
+
+    report = EvalReport(
+        provenance=collect_provenance(settings, queries, path),
+        tier_a=run_tier_a(
+            queries,
+            build_retriever(settings),
+            settings,
+            k=5,
+            measure_lift=settings.retrieval.rerank_enabled,
+        ),
+        tier_b=build_tier_b(settings, queries, progress=verbose),
+        adversarial=build_adversarial(
+            settings, load_suite(), full=full_adversarial, progress=verbose
+        ),
+    )
+    out = write_report(report, default_report_path(project_path(settings.eval.reports_dir), report))
+    console.print(f"report -> {out}")
+    if report.tier_b is not None:
+        print_tier_b(report.tier_b)
+
+    base_path = project_path(settings.eval.baseline_path)
+    baseline = load_report(base_path) if base_path.exists() else None
+    gate = evaluate_gate(report, baseline, settings.eval.gate_max_drop) if baseline else None
+    if gate is not None:
+        print_gate(gate)
+    else:
+        console.print("[yellow]No baseline promoted — gate skipped.[/yellow]")
+    if html:
+        page = out.with_suffix(".html")
+        page.write_text(render_html(report, baseline, gate), encoding="utf-8")
+        console.print(f"html -> {page}")
+    if gate is not None and not gate.passed:
+        raise typer.Exit(code=1)
+
+
 @eval_app.command("synthesize")
 def eval_synthesize(
     n: int = typer.Option(25, help="Accepted questions to produce."),
@@ -250,20 +276,7 @@ def eval_adversarial(
     """Attack success and false refusal rates — reported together, always."""
     settings = get_settings()
     cases = load_suite(Path(suite))
-
-    if full:
-        from rag.api.deps import get_guarded_answerer
-
-        report = run_suite_full(cases, get_guarded_answerer(), progress=True if verbose else None)
-    else:
-        pipeline = build_pipeline(
-            settings,
-            load_policy(),
-            embedder=Embedder(settings),
-            centroid_provider=cached_centroid_provider(),
-            judge=None,
-        )
-        report = run_suite(cases, pipeline, progress=True if verbose else None)
+    report = build_adversarial(settings, cases, full=full, progress=verbose)
 
     scope = "full path" if full else "input rails only"
     table = Table(title=f"Adversarial suite ({len(cases)} cases, {scope})")
