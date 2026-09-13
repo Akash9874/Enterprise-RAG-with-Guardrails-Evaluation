@@ -40,7 +40,17 @@ where ideas go instead of into the build. Each item says why it was deferred.
   hedge-before-display guarantee), or shorten premises (reintroduces the truncation ADR-021 ruled out).
 - **FR-GR7's escalation budget does not cap T3.** A positive budget is compared only after the judge
   returns; on overrun the rail flags `budget_exceeded` but keeps the judge's verdict instead of
-  degrading to T2. Fix test-first with a positive-budget overrun case (ADR-029).
+  degrading to T2. Observed live: a T3 call ran 17.96 s against a 5 s budget (ADR-030). Fix
+  test-first with a positive-budget overrun case (ADR-029).
+- **Leaked source markup in answers.** The model sometimes reproduces the prompt's
+  `<source marker path location>` element in its prose (1 of 6 inspected answers), despite the
+  system prompt forbidding it. Stripping it in citation enforcement would clean the display, but in the
+  one measured case it also *lowered* HHEM's score (0.309 → 0.156), so it needs a Tier B re-run to
+  report honestly (ADR-030).
+- **Claims whose support may span chunks.** ADR-021's per-chunk max cannot combine support split
+  across two chunks of one section. That is a hypothesis from one case (ADR-030). Scoring against merged
+  neighbouring chunks is the candidate fix, and it must be measured against the truncation problem
+  ADR-021 was chosen to avoid.
 - **Pin HHEM's inner tokenizer.** HHEM's own remote code loads `google/flan-t5-base` without a
   revision, which this project cannot pin without patching vendor code (ADR-028).
 - **Pin every model revision, not only the remote-code one.** Only HHEM executes remote code and

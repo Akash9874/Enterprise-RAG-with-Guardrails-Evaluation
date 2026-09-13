@@ -1021,3 +1021,64 @@ not cause the latency above — escalation never ran — and is recorded for a t
 
 **The general lesson.** A benchmark that measures a convenient subset of a requirement reports a PASS for
 the subset. This one stood for a whole phase until a live demo exposed it.
+
+---
+
+## ADR-030 — Echoed source markup raised a groundedness score into the escalation band
+
+**Context.** In the demo, *"Why was bge-reranker-large rejected?"* produced an answer whose facts match
+ADR-003 and whose citation `[2]` points at the right source. The groundedness rail still hedged it,
+escalating to T3 on the way. Three separate things happened in that one answer. Each was found by
+reading the answer's guardrail trace, and each is measured below at the size of the evidence: one
+answer.
+
+**1. The model leaked the prompt's source markup into its prose.** The answer ended *"as mentioned in
+`[source marker="[2]" path="Docs/decisions.md" location="…ADR-003…"]`"*. That is the
+`<source marker=… path=… location=…>` element `build_prompt` wraps each chunk in, reproduced with
+square brackets, even though the system prompt says *never repeat the source path or the source header
+line*. Citation enforcement did not remove it, because it only strips out-of-range `[n]` markers. The
+leak appeared in **1 of the 6 answers** whose text was inspected.
+
+**2. The leaked markup *raised* the groundedness score.** The rail's live score was 0.309. Scored
+offline against the same two ADR-003 chunks at the pinned HHEM revision, the sentence as the rail saw it
+reproduced that score exactly. With the markup removed, the same claim scored less than half as much:
+
+| hypothesis scored against the ADR-003 chunks | max | per chunk | band |
+|---|---|---|---|
+| as written, with leaked markup (what the rail scored) | **0.309** | 0.004 / 0.309 | inside the band → escalate to T3 |
+| same claim, markup removed | **0.156** | 0.003 / 0.156 | at or below `t_block` 0.30 → trip (action: hedge) |
+
+The final verdict is `hedge` either way. What the leak changed was the path: its inflated score entered
+the escalation band and triggered a T3 call the clean sentence would never have made. *Why* the markup
+raised the score is not established; overlap between the echoed ADR title and the source text is the
+obvious candidate, and was not isolated.
+
+**3. That T3 call ran 3.6× over its budget, uncapped.** The trace recorded `escalation_ms` 17,959 against
+`escalation_budget_ms` 5,000, with `budget_exceeded: true` and `judge_reply: UNSUPPORTED`. This is the
+FR-GR7 gap ADR-029 recorded from reading `_escalate`, now observed live: the overrun was flagged, not
+capped. Here it cost latency, not correctness. Of the rail's 22.2 s, about 18 s was the judge and about
+4 s was HHEM. The answer had one sentence, so roughly 5 HHEM pairs, which is consistent with ADR-029's
+sentences × chunks cost.
+
+**What this does and does not establish about the rail.**
+
+- It is **not** established that HHEM under-scored a correct answer. ADR-003 says MiniLM was *expected*
+  to take ~25 ms; the answer states that estimate as fact and adds a judgement ("too high"). A low score
+  for the cleaned claim (0.156) is at least partly defensible, so this is not claimed as a false hedge.
+- One case does show that echoing source metadata can make an answer score *more* grounded than stating
+  the claim cleanly. How often that happens is not measured.
+- A hypothesis only: part of the claim's support may sit in each of the two ADR-003 chunks (1,932 and
+  693 characters), which ADR-021's per-chunk max cannot combine.
+
+**Decision.** Document, not fix, consistent with ADR-029. Both candidate fixes change measured behaviour,
+and reporting either honestly needs Tier B re-measured (~100 min):
+
+- **Strip leaked `[source …]` markup in citation enforcement.** The displayed answer would be clean, but
+  by the table above it also *lowers* groundedness for such answers, shifting rail paths and Tier B
+  numbers.
+- **Change the prompt.** The prompt already forbids this, and ADR-016 records the obvious prompt
+  improvement losing to measurement once.
+
+**The README's trace screenshot is this answer.** It is captioned for what the trace shows — a correctly
+cited answer that the rail hedged via an over-budget escalation — and not as the rail catching an
+unsupported answer, which this evidence does not establish.

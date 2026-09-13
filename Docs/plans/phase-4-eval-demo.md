@@ -4249,7 +4249,38 @@ cross-encoder compute. At the user's direction it is documented, not re-architec
 **The guardrail legend misreported a blocked request as refused.** It was found only by viewing the
 rendered screenshot: the accessibility tree was correct, the pixels were not. Fixed (ADR-028).
 
+**A third hypothesis was refuted, again in the live demo.** A correctly cited answer was hedged, and its
+prose had echoed the prompt's `<source …>` markup. The expectation was that the markup had dragged its
+groundedness score down. The measurement showed the opposite: removing the markup lowered the score from
+0.309 to 0.156, so the echo had lifted it *into* the escalation band. The trace also caught a live T3
+call running 17.96 s against a 5 s budget. Documented, not fixed (ADR-030).
+
+**Three presentation defects were fixed after viewing the rendered screenshots.** The verdict legend
+reported a blocked request as refused (ADR-028). Rail latencies rounded a 0.02 ms T0 rail to "0 ms",
+which read as a missing measurement. And the `eval retrieval` table still pooled hand and synthetic
+into an Overall column, which `eval/CLAUDE.md` forbids. All three were found by looking at output, not
+by tests.
+
 **ADR numbers moved.** The plan assigned ADR-023 to the contamination and ADR-024 to BERTScore, then
 used ADR-026 for CI in Task 6. The final order is 023 contamination, 024 BERTScore and Tier B
-definitions, 025 gate rules, 026 CI scope, 027 Ragas, 028 Compose, 029 groundedness latency.
+definitions, 025 gate rules, 026 CI scope, 027 Ragas, 028 Compose, 029 groundedness latency,
+030 echoed source markup.
+
+---
+
+## Exit criteria, verified 2026-09-14
+
+| Criterion | Result |
+|---|---|
+| CI fails on a deliberately injected retrieval regression | **Met.** Run 34758239606: hand Recall@5 0.661 → 0.464, gate FAIL. PR #3 closed and its branch deleted |
+| `docker compose up` reaches a working demo in ≤ 90 s | **Met.** 21.4 s to all services healthy. Ingest (1,192 s) and the first query (78.8 s cold) were measured separately |
+| Coverage ≥ 85% on `guardrails/`, `retrieval/`, `eval/` (NFR-8) | **Met.** 94%, fast suite, 442 tests |
+| `rag eval all` produces an HTML report with provenance and a baseline diff (PRD §13.3) | **Implemented and unit-tested**, JSON and HTML asserted. No live full run was done: it includes the ~100 min Tier B |
+
+**Not done, and disclosed rather than smoothed over:**
+
+- The synthetic golden half is built and tested but not merged, so every published figure is hand-authored.
+- There was no full Tier B re-run; the published Tier B numbers are the 34-query run from this phase.
+- NFR-1 (end-to-end ≤ 20 s) and NFR-2 (all rails ≤ 300 ms) are not met (ADR-029).
+- FR-GR7's escalation budget is not enforced — observed live (ADR-030).
 
