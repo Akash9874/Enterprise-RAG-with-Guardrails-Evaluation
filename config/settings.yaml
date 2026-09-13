@@ -9,8 +9,8 @@ models:
   registry_max_resident: 4
 
 retrieval:
-  k_dense: 20              # UNMEASURED
-  k_sparse: 20             # UNMEASURED
+  k_dense: 1              # UNMEASURED
+  k_sparse: 1             # UNMEASURED
   k_fuse: 30               # MEASURED: no effect on top-5 with rerank off (ADR-003)
   k_final: 5               # UNMEASURED
   rrf_k: 60                # conventional RRF constant
