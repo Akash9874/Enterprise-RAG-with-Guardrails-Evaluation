@@ -792,6 +792,71 @@ threshold mean what FR-E7 intended.
 
 ---
 
+## ADR-026 — CI gates Tier A; the groundedness gate runs locally
+
+**Context.** FR-E7 gates on Recall@5 and on mean groundedness. Groundedness needs generated answers:
+a 1.9 GB model pull, then a CPU generation per golden query. Measured on the reference laptop, the
+first full Tier B run over 34 hand queries took **98.5 minutes** (under some CPU contention). A shared
+CI runner has fewer cores than that laptop.
+
+**Decision.** A `retrieval-gate` CI job starts a Qdrant service container, indexes the checkout with
+the injection scan on, runs Tier A and gates Recall@5 per provenance half. `rag eval gate` enforces
+the groundedness threshold locally before any baseline is promoted. In CI the Tier B checks report
+`not_run`, never `pass` (ADR-025).
+
+**Proof the gate fails when it should.** A throwaway branch set `k_dense` and `k_sparse` to 1. Run
+[34758239606](https://github.com/Akash9874/Enterprise-RAG-with-Guardrails-Evaluation/actions/runs/34758239606):
+
+| | Recall@5 (hand) | NDCG@5 | MRR | Hit@5 | gate |
+|---|---|---|---|---|---|
+| baseline (`07b032b`) | 0.661 | 0.683 | 0.643 | 0.750 | — |
+| injected regression | **0.464** | 0.398 | 0.411 | 0.536 | **FAIL** (Δ −0.196, max drop 0.020) |
+
+**Laptop and runner agree exactly.** The same commit indexed locally with the same scan gave
+identical Tier A to four decimals, with **0 of 28 queries** returning a different top-5 order.
+The baseline was promoted from the CI artifact because CI is where the gate runs. On this evidence it
+would have been identical promoted from the laptop.
+
+**The finding this ADR most needs to record: the gate's margin is eaten by the corpus itself.**
+This system indexes its own repository, so every commit changes the corpus. The first green run
+after promotion was on a tree that added Tier C, the API endpoints and the UI, with **no retrieval
+code changed**:
+
+| | chunks | quarantined | Recall@5 (hand) |
+|---|---|---|---|
+| baseline `07b032b` | 1,194 | 35 | 0.661 |
+| green run `984d316` | 1,275 | 37 | 0.643 (Δ **−0.018**, gate PASS) |
+
+Corpus growth alone used 1.8 of the 2.0 points FR-E7 allows. The next commit that adds retrievable
+text near a golden query's answer can fail the gate with no regression in the retriever. That is a
+property of a self-indexing corpus meeting a strict threshold (ADR-025: one query is 3.6 points), not
+flake — Tier A is bit-reproducible. The options, none taken silently:
+
+1. Re-promote the baseline deliberately when a PR legitimately grows the corpus, with the reason in
+   the commit. This is what FR-E8 already requires, and the shipped behaviour.
+2. Index a frozen corpus snapshot in CI, so the gate isolates retrieval changes from corpus changes.
+   It would then stop measuring the product as served.
+3. Loosen the threshold. That is FR-E7's number to change, not this phase's.
+
+**Also found: provenance records the wrong commit when the indexed tree is not the working tree.**
+`corpus_commit` reads the process's git checkout, but the index may have been built from another path.
+The laptop comparison above indexed a worktree at `07b032b` from a checkout at `3e2a38e`, and its report
+says `3e2a38e-dirty`. CI never shows this, because it indexes its own checkout. The honest fix is to record the
+commit at ingest time and read it back from the index. That is a change to ingest and provenance,
+recorded here and deferred rather than smuggled into this phase.
+
+**Measured along the way.** Linux torch resolved from PyPI with 15 `nvidia-*` CUDA packages plus
+`triton`. Routing it to the PyTorch CPU index removed all of them from the lock; Linux now resolves
+`2.14.0+cpu`. There is no prior CI run of this job with CUDA to compare install time against, so no
+before/after time is claimed. The scanned ingest takes 495 s on the runner.
+
+**Rejected.** Tier B in CI: truest to FR-E7, but ~100 min of CPU generation per PR on a shared runner.
+Re-scoring committed answers in CI: fast, but it catches scoring regressions and never generation
+ones, so it would look like a groundedness gate without being one. Skipping the injection scan in CI:
+it quarantines 35 chunks including real code (ADR-023), so a scan-less CI would gate a different corpus.
+
+---
+
 ## ADR-027 — Ragas is an opt-in extra, pinned around a broken dependency, never a default
 
 **Context.** FR-E3 names Ragas for Tier C. Measured 2026-09-13, `ragas` 0.4.3 (the latest release)

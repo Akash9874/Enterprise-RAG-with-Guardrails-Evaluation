@@ -457,6 +457,7 @@ evidence. The README reproduces this table with measured numbers once the harnes
 | Citation enforcement | **Post-hoc marker validation** | Constrained decoding — needs logit-level control Ollama does not expose, and cannot catch an in-range but unsupported citation anyway. See ADR-013. |
 | Python | **3.12**, pinned via `uv` | 3.14 is ahead of `spacy` / `presidio` / torch wheel availability. |
 | BERTScore | **In-house over distilbert-base-uncased L5** | `bert-score` package — 11 extra dependencies for ~15 lines of numpy, identical to 2.4e-4. `deberta-xlarge-mnli` — 3.0 GB download. See ADR-024. |
+| CI regression gate | **Tier A in CI, Tier B gated locally** | Tier B in CI — ~100 min of CPU generation per PR. Re-scoring committed answers — cannot see generation regressions. Scan-less CI — gates a different corpus. Proven: an injected regression failed the gate (Recall@5 0.661 → 0.464). See ADR-026. |
 | Tier C judge | **Ragas via opt-in `judge` extra**, local Ollama judge by default | Ragas as a core dependency — +38 packages incl. langchain / langgraph, and 0.4.3 needs `langchain-community<0.4` to import at all. Hand-rolled Ragas-style prompts — numbers comparable with no one else's. See ADR-027. |
 
 ---
