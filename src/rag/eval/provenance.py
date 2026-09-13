@@ -1,16 +1,22 @@
-"""Report provenance (FR-E4). A report without a valid block is never written."""
+"""Report provenance (FR-E4). A report without a valid block is never written.
+
+The corpus commit is supplied by the caller from the index being scored — the stamps ingest
+wrote onto every chunk — never guessed from the eval process's own checkout (ADR-026).
+"""
 
 from __future__ import annotations
 
 import hashlib
-import subprocess
 from pathlib import Path
 
 from pydantic import BaseModel
 
 from rag.config import Settings
 from rag.eval.golden import GoldenQuery, golden_set_hash
+from rag.gitinfo import UNKNOWN
 from rag.guardrails.policy import DEFAULT_POLICY_PATH
+
+MIXED_PREFIX = "mixed:"
 
 
 class Provenance(BaseModel):
@@ -25,8 +31,13 @@ class Provenance(BaseModel):
 
     def problems(self) -> list[str]:
         issues: list[str] = []
-        if self.corpus_commit in {"", "unknown"}:
+        if self.corpus_commit in {"", UNKNOWN}:
             issues.append("corpus_commit is unknown")
+        elif self.corpus_commit.startswith(MIXED_PREFIX):
+            issues.append(
+                f"the index spans more than one commit ({self.corpus_commit}); "
+                "re-ingest with --recreate"
+            )
         for name in ("config_hash", "policy_hash", "golden_set_hash"):
             if not getattr(self, name):
                 issues.append(f"{name} is empty")
@@ -37,28 +48,13 @@ class Provenance(BaseModel):
         return issues
 
 
-def _git(root: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(root), *args],
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=5,
-    ).stdout.strip()
-
-
-def corpus_commit(root: Path | None = None) -> str:
-    """Short SHA, suffixed `-dirty` when tracked files have uncommitted changes.
-
-    A dirty tree's numbers correspond to no commit, and the report must say so.
-    """
-    where = root if root is not None else Path.cwd()
-    try:
-        sha = _git(where, "rev-parse", "--short", "HEAD")
-        dirty = bool(_git(where, "status", "--porcelain", "--untracked-files=no"))
-    except Exception:  # noqa: BLE001 - provenance collection must never raise
-        return "unknown"
-    return f"{sha}-dirty" if dirty else sha
+def summarize_commits(commits: set[str]) -> str:
+    """One commit as-is; several as a sorted `mixed:` list; none as unknown."""
+    if not commits:
+        return UNKNOWN
+    if len(commits) == 1:
+        return next(iter(commits))
+    return MIXED_PREFIX + ",".join(sorted(commits))
 
 
 def policy_hash(path: Path | None = None) -> str:
@@ -71,11 +67,12 @@ def collect_provenance(
     settings: Settings,
     queries: list[GoldenQuery],
     golden_path: Path,
+    corpus_commit: str,
     judge: str | None = None,
 ) -> Provenance:
     models = {k: v for k, v in settings.models.model_dump().items() if isinstance(v, str)}
     return Provenance(
-        corpus_commit=corpus_commit(),
+        corpus_commit=corpus_commit,
         config_hash=settings.config_hash(),
         policy_hash=policy_hash(),
         golden_set_hash=golden_set_hash(golden_path),

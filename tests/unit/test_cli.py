@@ -45,6 +45,7 @@ def test_eval_retrieval_prints_the_headline_metrics(tmp_path: Path) -> None:
         retriever.search.return_value = []
         build.return_value = retriever
         store_cls.return_value.chunk_ids.return_value = set()
+        store_cls.return_value.corpus_commits.return_value = {"abc1234"}
 
         result = runner.invoke(app, ["eval", "retrieval", "--golden", str(golden)])
 
@@ -136,10 +137,10 @@ def test_writing_a_report_never_touches_the_baseline(tmp_path: Path) -> None:
     with (
         patch("rag.cli_eval.build_retriever") as build,
         patch("rag.cli_eval.QdrantStore") as store_cls,
-        patch("rag.eval.provenance.corpus_commit", return_value="abc1234"),
     ):
         build.return_value.search.return_value = []
         store_cls.return_value.chunk_ids.return_value = set()
+        store_cls.return_value.corpus_commits.return_value = {"abc1234"}
         out = tmp_path / "r.json"
         result = runner.invoke(
             app,
@@ -179,9 +180,9 @@ def test_eval_all_writes_json_and_html_without_a_baseline(
             patch("rag.cli_eval.run_tier_a", return_value=tier_a),
             patch("rag.cli_eval.build_tier_b", return_value=tier_b),
             patch("rag.cli_eval.build_adversarial", return_value=AdversarialReport()),
-            patch("rag.eval.provenance.corpus_commit", return_value="abc1234"),
         ):
             store_cls.return_value.chunk_ids.return_value = set()
+            store_cls.return_value.corpus_commits.return_value = {"abc1234"}
             result = runner.invoke(app, ["eval", "all", "--report"])
     finally:
         get_settings.cache_clear()

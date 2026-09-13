@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from rag.contracts import IngestSummary
+from rag.gitinfo import git_commit
 from rag.ingest.enrich import SCAN_FAILED, quarantine_chunks
 from rag.ingest.pipeline import build_chunks
 
@@ -29,6 +30,11 @@ def run_ingest(
 ) -> IngestSummary:
     started = time.perf_counter()
     chunks, stats = build_chunks(source)
+    # Stamp the commit of the tree being indexed onto every chunk, so provenance can be read
+    # back from the index itself (ADR-026).
+    commit = git_commit(source)
+    for chunk in chunks:
+        chunk.corpus_commit = commit
 
     scan: Literal["ok", "skipped", "failed"] = "skipped"
     quarantined: int | None = None
@@ -52,6 +58,7 @@ def run_ingest(
         # Whole-run wall time including the scan and embedding, not just chunking.
         duration_s=round(time.perf_counter() - started, 3),
         finished_at=datetime.now(UTC),
+        corpus_commit=commit,
     )
 
 

@@ -10,6 +10,7 @@ from qdrant_client import QdrantClient, models
 
 from rag.config import Settings
 from rag.contracts import Chunk
+from rag.gitinfo import UNKNOWN
 from rag.index.schema import (
     DENSE_VECTOR,
     SPARSE_VECTOR,
@@ -113,6 +114,17 @@ class QdrantStore:
 
     def chunk_ids(self) -> set[str]:
         return {str(payload["chunk_id"]) for payload in self.iter_payloads(["chunk_id"])}
+
+    def corpus_commits(self) -> set[str]:
+        """Distinct commits stamped on indexed chunks; unstamped chunks count as unknown.
+
+        More than one value means the index mixes trees — stale chunks from an incremental
+        ingest, or chunks predating commit stamps — and provenance must say so (ADR-026).
+        """
+        return {
+            str(payload.get("corpus_commit") or UNKNOWN)
+            for payload in self.iter_payloads(["corpus_commit"])
+        }
 
     def dense_centroid(self, batch_size: int = 256) -> list[float] | None:
         """Mean of every indexed dense vector — the corpus's centre of mass.

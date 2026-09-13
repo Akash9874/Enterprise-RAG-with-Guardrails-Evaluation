@@ -365,6 +365,7 @@ class Chunk:
     pii_findings: list[PIIFinding]
     quarantined: bool
     content_hash: str
+    corpus_commit: str | None  # commit of the tree it was indexed from — eval provenance reads it back
 
 
 class Retrieved:
@@ -427,6 +428,7 @@ class IngestSummary:  # POST /ingest response, and the last-ingest record (FR-A3
     scan: Literal["ok", "skipped", "failed"]
     duration_s: float
     finished_at: datetime
+    corpus_commit: str  # of the source tree, asked of that tree (ADR-026)
 
 
 class CorpusStats:  # GET /corpus/stats (FR-A4)

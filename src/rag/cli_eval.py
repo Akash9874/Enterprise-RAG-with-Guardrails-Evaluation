@@ -8,14 +8,14 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rag.config import get_settings, project_path
+from rag.config import Settings, get_settings, project_path
 from rag.eval.adversarial import DEFAULT_SUITE_PATH, load_suite
 from rag.eval.gate import GateResult, PromotionError, evaluate_gate, promote_baseline
 from rag.eval.generation_runner import TierBResult
 from rag.eval.golden import load_golden, stale_chunk_refs
 from rag.eval.html import render_html
 from rag.eval.judged import run_tier_c
-from rag.eval.provenance import collect_provenance
+from rag.eval.provenance import collect_provenance, summarize_commits
 from rag.eval.report import EvalReport, default_report_path, load_report, write_report
 from rag.eval.runner import run_tier_a
 from rag.eval.synthesize import dump_golden, synthesize
@@ -27,6 +27,11 @@ from rag.index.schema import payload_to_chunk
 
 eval_app = typer.Typer(help="Evaluation harness.")
 console = Console()
+
+
+def index_commit(settings: Settings) -> str:
+    """The commit(s) the scored index was built from, read from its chunk stamps (ADR-026)."""
+    return summarize_commits(QdrantStore(settings).corpus_commits())
 
 
 @eval_app.command("retrieval")
@@ -75,7 +80,7 @@ def eval_retrieval(
         console.print("[dim]Reranker lift not measured (--lift to measure). See ADR-003.[/dim]")
     else:
         console.print(f"[bold]Reranker lift (ΔNDCG@{k}):[/bold] {result.reranker_lift:+.4f}")
-    prov = collect_provenance(settings, queries, path)
+    prov = collect_provenance(settings, queries, path, corpus_commit=index_commit(settings))
     console.print(
         f"[dim]corpus={prov.corpus_commit} config={prov.config_hash} "
         f"policy={prov.policy_hash} golden={prov.golden_set_hash}[/dim]"
@@ -114,7 +119,8 @@ def eval_generation(
     result = build_tier_b(settings, queries, progress=verbose)
     print_tier_b(result)
     if out:
-        report = EvalReport(provenance=collect_provenance(settings, queries, path), tier_b=result)
+        prov = collect_provenance(settings, queries, path, corpus_commit=index_commit(settings))
+        report = EvalReport(provenance=prov, tier_b=result)
         console.print(f"[dim]report -> {write_report(report, Path(out))}[/dim]")
 
 
@@ -203,7 +209,9 @@ def eval_all(
         raise typer.Exit(code=2)
 
     report = EvalReport(
-        provenance=collect_provenance(settings, queries, path),
+        provenance=collect_provenance(
+            settings, queries, path, corpus_commit=index_commit(settings)
+        ),
         tier_a=run_tier_a(
             queries,
             build_retriever(settings),

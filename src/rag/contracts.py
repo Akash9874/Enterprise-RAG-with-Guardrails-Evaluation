@@ -46,6 +46,9 @@ class Chunk(BaseModel):
     # quarantine threshold, so the decision is reviewable rather than just a boolean.
     injection_score: float | None = None
     content_hash: str = ""
+    # Commit of the tree this chunk was indexed from. Eval provenance is read back from these
+    # stamps, so a report describes the index it scored, not the eval process's checkout.
+    corpus_commit: str | None = None
 
 
 class Retrieved(BaseModel):
@@ -125,6 +128,7 @@ class IngestSummary(BaseModel):
     scan: Literal["ok", "skipped", "failed"] = "skipped"
     duration_s: float
     finished_at: datetime
+    corpus_commit: str = "unknown"
 
 
 class CorpusStats(BaseModel):

@@ -838,12 +838,21 @@ flake — Tier A is bit-reproducible. The options, none taken silently:
    It would then stop measuring the product as served.
 3. Loosen the threshold. That is FR-E7's number to change, not this phase's.
 
-**Also found: provenance records the wrong commit when the indexed tree is not the working tree.**
-`corpus_commit` reads the process's git checkout, but the index may have been built from another path.
+**Found and fixed: provenance recorded the wrong commit when the indexed tree was not the working tree.**
+`corpus_commit` read the eval process's own git checkout, but the index can be built from any path.
 The laptop comparison above indexed a worktree at `07b032b` from a checkout at `3e2a38e`, and its report
-says `3e2a38e-dirty`. CI never shows this, because it indexes its own checkout. The honest fix is to record the
-commit at ingest time and read it back from the index. That is a change to ingest and provenance,
-recorded here and deferred rather than smuggled into this phase.
+said `3e2a38e-dirty` — a report asserting a corpus it never scored, which is exactly what FR-E4
+provenance exists to prevent. CI never showed it, because CI indexes its own checkout.
+
+The fix moves the fact to where it is true. Ingest stamps every chunk's payload with the commit of the
+tree being indexed (`rag.gitinfo.git_commit(source)`, asked of the source directory, never of the
+working directory), and records it in `IngestSummary`. Eval reads the distinct stamps back from Qdrant
+(`QdrantStore.corpus_commits`) and passes them to `collect_provenance`. One commit is recorded as
+is. Several, or chunks with no stamp, become `mixed:<a>,<b>`, which `Provenance.problems()`
+rejects with "re-ingest with --recreate". That also catches the stale chunks an incremental ingest
+leaves behind: `upsert` never deletes points from files that have since been removed or edited, so
+an index could previously mix trees without any report saying so. Every existing index predates the
+stamps and reads as `unknown` until re-ingested, which is the correct refusal, not a regression.
 
 **Measured along the way.** Linux torch resolved from PyPI with 15 `nvidia-*` CUDA packages plus
 `triton`. Routing it to the PyTorch CPU index removed all of them from the lock; Linux now resolves

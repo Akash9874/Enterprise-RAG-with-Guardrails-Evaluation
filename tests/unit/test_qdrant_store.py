@@ -83,6 +83,26 @@ def test_iter_payloads_pages_until_offset_is_none() -> None:
     assert client.scroll.call_args.kwargs["with_vectors"] is False
 
 
+def test_corpus_commits_are_the_distinct_stamps_in_the_index() -> None:
+    client = MagicMock()
+    client.get_collections.return_value = MagicMock(collections=[MagicMock()])
+    client.get_collections.return_value.collections[0].name = Settings().qdrant.collection
+    client.scroll.side_effect = [
+        (
+            [
+                MagicMock(payload={"corpus_commit": "abc1234"}),
+                MagicMock(payload={"corpus_commit": "abc1234"}),
+                MagicMock(payload={}),  # a chunk indexed before commits were stamped
+            ],
+            None,
+        ),
+    ]
+    store = QdrantStore(Settings(), client=client)
+
+    assert store.corpus_commits() == {"abc1234", "unknown"}
+    assert client.scroll.call_args.kwargs["with_payload"] == ["corpus_commit"]
+
+
 def test_iter_payloads_of_an_absent_collection_is_empty() -> None:
     client = MagicMock()
     client.get_collections.return_value = MagicMock(collections=[])
