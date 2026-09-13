@@ -65,17 +65,13 @@ def eval_retrieval(
     stage = "dense+sparse RRF, reranked" if result.reranked else "dense+sparse RRF"
     table = Table(title=f"Tier A — retrieval ({result.scored_queries} queries, {stage})")
     table.add_column("Metric")
-    table.add_column("Overall", justify="right")
     table.add_column("Hand", justify="right")
     table.add_column("Synthetic", justify="right")
 
+    # Hand and synthetic are never pooled into one headline (eval/CLAUDE.md).
     for metric in sorted(result.overall):
-        table.add_row(
-            metric,
-            f"{result.overall[metric]:.3f}",
-            f"{result.by_provenance['hand'].get(metric, 0.0):.3f}",
-            f"{result.by_provenance['synthetic'].get(metric, 0.0):.3f}",
-        )
+        cells = [result.by_provenance[half].get(metric) for half in ("hand", "synthetic")]
+        table.add_row(metric, *("—" if v is None else f"{v:.3f}" for v in cells))
     console.print(table)
     if result.reranker_lift is None:
         console.print("[dim]Reranker lift not measured (--lift to measure). See ADR-003.[/dim]")

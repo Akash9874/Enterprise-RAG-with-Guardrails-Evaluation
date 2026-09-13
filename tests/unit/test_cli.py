@@ -52,6 +52,9 @@ def test_eval_retrieval_prints_the_headline_metrics(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "recall@5" in result.stdout.lower()
     assert "reranker lift" in result.stdout.lower()
+    # Never pool hand and synthetic into one headline number (eval/CLAUDE.md). The Overall
+    # column did exactly that; it only matched Hand today because the synthetic half is empty.
+    assert "Overall" not in result.stdout
 
 
 def test_eval_retrieval_refuses_stale_chunk_references(tmp_path: Path) -> None:
