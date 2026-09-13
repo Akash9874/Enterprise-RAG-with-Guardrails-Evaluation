@@ -11,9 +11,11 @@ from rich.table import Table
 from rag.config import Settings, get_settings, project_path
 from rag.eval.adversarial import DEFAULT_SUITE_PATH, load_suite
 from rag.eval.adversarial_runner import run_suite, run_suite_full
+from rag.eval.gate import GateResult, PromotionError, evaluate_gate, promote_baseline
 from rag.eval.generation_runner import TierBResult, run_tier_b
 from rag.eval.golden import GoldenQuery, load_golden, stale_chunk_refs
 from rag.eval.provenance import collect_provenance
+from rag.eval.report import EvalReport, load_report, write_report
 from rag.eval.runner import run_tier_a
 from rag.eval.scorers import HHEMSupportScorer, TokenEmbedder
 from rag.eval.synthesize import dump_golden, synthesize
@@ -47,6 +49,7 @@ def eval_retrieval(
         help="Measure reranker lift. Costs a second retrieval pass over every query. "
         "Defaults to on only when reranking is enabled.",
     ),
+    out: str | None = typer.Option(None, "--out", help="Write an EvalReport JSON here."),
 ) -> None:
     settings = get_settings()
     path = Path(golden) if golden else project_path(settings.eval.golden_path)
@@ -85,6 +88,9 @@ def eval_retrieval(
         f"[dim]corpus={prov.corpus_commit} config={prov.config_hash} "
         f"policy={prov.policy_hash} golden={prov.golden_set_hash}[/dim]"
     )
+    if out:
+        written = write_report(EvalReport(provenance=prov, tier_a=result), Path(out))
+        console.print(f"[dim]report -> {written}[/dim]")
 
 
 def build_tier_b(settings: Settings, queries: list[GoldenQuery], progress: bool) -> TierBResult:
@@ -123,12 +129,84 @@ def eval_generation(
         None, help="Golden set path (default: settings.eval.golden_path)."
     ),
     verbose: bool = typer.Option(False, "--verbose", help="Print each query as it runs."),
+    out: str | None = typer.Option(None, "--out", help="Write an EvalReport JSON here."),
 ) -> None:
     """Tier B. Generates every answer on CPU — expect tens of minutes, not seconds."""
     settings = get_settings()
     path = Path(golden) if golden else project_path(settings.eval.golden_path)
     queries = load_golden(path)
-    print_tier_b(build_tier_b(settings, queries, progress=verbose))
+    result = build_tier_b(settings, queries, progress=verbose)
+    print_tier_b(result)
+    if out:
+        report = EvalReport(provenance=collect_provenance(settings, queries, path), tier_b=result)
+        console.print(f"[dim]report -> {write_report(report, Path(out))}[/dim]")
+
+
+def print_gate(result: GateResult) -> None:
+    table = Table(title="Regression gate (FR-E7)")
+    for column in ("Metric", "Baseline", "Current", "Δ", "Max drop", "Status"):
+        table.add_column(column, justify="left" if column == "Metric" else "right")
+    style = {"pass": "green", "fail": "red", "not_run": "dim"}
+
+    def fmt(value: float | None, sign: str = "") -> str:
+        return "—" if value is None else f"{value:{sign}.3f}"
+
+    for check in result.checks:
+        colour = style[check.status]
+        table.add_row(
+            check.metric,
+            fmt(check.baseline),
+            fmt(check.current),
+            fmt(check.delta, "+"),
+            f"{check.max_drop:.3f}",
+            f"[{colour}]{check.status}[/{colour}]",
+        )
+    console.print(table)
+    if result.error:
+        console.print(f"[red]{result.error}[/red]")
+    console.print("[green]GATE PASS[/green]" if result.passed else "[red]GATE FAIL[/red]")
+
+
+@eval_app.command("gate")
+def eval_gate(
+    report: str = typer.Argument(..., help="EvalReport JSON to check."),
+    baseline: str | None = typer.Option(None, help="Baseline path (default: settings)."),
+) -> None:
+    """Compare a report against the promoted baseline. Exit 1 on regression (FR-E7)."""
+    settings = get_settings()
+    base = Path(baseline) if baseline else project_path(settings.eval.baseline_path)
+    if not base.exists():
+        console.print(
+            f"[red]No baseline promoted[/red] at {base}. "
+            "Run `rag eval promote-baseline <report>` first."
+        )
+        raise typer.Exit(code=1)
+    result = evaluate_gate(
+        load_report(Path(report)), load_report(base), settings.eval.gate_max_drop
+    )
+    print_gate(result)
+    if not result.passed:
+        raise typer.Exit(code=1)
+
+
+@eval_app.command("promote-baseline")
+def eval_promote_baseline(
+    report: str = typer.Argument(..., help="EvalReport JSON to promote."),
+    baseline: str | None = typer.Option(None, help="Baseline path (default: settings)."),
+) -> None:
+    """The only way a baseline changes (FR-E8). Commit the result deliberately."""
+    settings = get_settings()
+    base = Path(baseline) if baseline else project_path(settings.eval.baseline_path)
+    try:
+        promoted = promote_baseline(Path(report), base)
+    except PromotionError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+    console.print(
+        f"[green]Promoted[/green] {report} -> {base} "
+        f"(corpus {promoted.provenance.corpus_commit}, "
+        f"golden {promoted.provenance.golden_set_hash})"
+    )
 
 
 @eval_app.command("synthesize")

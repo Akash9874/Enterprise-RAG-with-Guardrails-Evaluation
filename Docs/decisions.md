@@ -761,3 +761,31 @@ which is what a regression harness needs.
 - *Citation recall* treats every sentence as a claim. Stated simplification.
 - A citation marker placed after the full stop attaches to the following sentence. Known
   limitation of sentence-level scoring.
+
+---
+
+## ADR-025 — The gate checks each provenance half, and "not run" is not "passed"
+
+**Decision.** FR-E7's thresholds — Recall@5 may not drop more than 2 points, mean groundedness not
+more than 3 — are applied to the `hand` and `synthetic` halves **separately**, as dotted paths in
+`eval.gate_max_drop` (e.g. `tier_a.by_provenance.hand.recall@5`). A pooled figure would let the
+easier synthetic half absorb a hand-authored regression — the pooling `eval/CLAUDE.md` forbids.
+
+**Rules, each asserted by a test.**
+
+- A metric present in only one report is `not_run`, not a failure. That is what lets CI gate
+  Tier A alone (ADR-026) without pretending Tier B passed.
+- A run in which *nothing* was gated **fails**. A gate that checked nothing must not print PASS.
+- A different golden-set hash fails outright; comparing across golden sets is invalid.
+- A drop exactly at the threshold passes. `0.78 − 0.80` is `−0.020000000000000018` in IEEE-754,
+  so the comparison carries a 1e-9 epsilon — without it the boundary would fail by rounding.
+- Promotion refuses a report whose corpus commit is `-dirty`: its numbers correspond to no commit.
+- Only `rag eval promote-baseline` writes `eval/baselines/`. A test asserts that writing a report
+  leaves the baseline file untouched.
+
+**Consequence, stated plainly: the gate is strict, not tolerant.** With 28 hand queries, one
+single-file query flipping from hit to miss moves hand Recall@5 by 1/28 = **3.6 points** — more than
+the 2-point threshold. So the gate trips on any single-query retrieval loss. That is defensible
+only because Tier A is bit-reproducible (`tests/integration/test_determinism.py`); on a noisy
+metric this threshold would be flake, not signal. Growing the hand half is the way to make the
+threshold mean what FR-E7 intended.

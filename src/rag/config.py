@@ -79,6 +79,18 @@ class EvalSettings(BaseModel):
     golden_path: str = "eval/golden/golden.yaml"
     # bert-score's default num_layers for distilbert-base-uncased.
     bertscore_layer: int = 5
+    # Written only by `rag eval promote-baseline` (FR-E8).
+    baseline_path: str = "eval/baselines/baseline.json"
+    reports_dir: str = "eval/reports"
+    # FR-E7. Absolute drop on a 0-1 scale, checked per provenance half, never pooled (ADR-025).
+    gate_max_drop: dict[str, float] = Field(
+        default_factory=lambda: {
+            "tier_a.by_provenance.hand.recall@5": 0.02,
+            "tier_a.by_provenance.synthetic.recall@5": 0.02,
+            "tier_b.by_provenance.hand.groundedness": 0.03,
+            "tier_b.by_provenance.synthetic.groundedness": 0.03,
+        }
+    )
 
 
 class Settings(BaseSettings):

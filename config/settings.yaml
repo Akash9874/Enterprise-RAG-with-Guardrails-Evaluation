@@ -36,3 +36,11 @@ ollama:
 eval:
   golden_path: eval/golden/golden.yaml
   bertscore_layer: 5         # bert-score's default num_layers for distilbert-base-uncased
+  baseline_path: eval/baselines/baseline.json   # written only by `rag eval promote-baseline`
+  reports_dir: eval/reports
+  # FR-E7: maximum absolute drop (0-1 scale) per gated metric, per provenance half (ADR-025).
+  gate_max_drop:
+    "tier_a.by_provenance.hand.recall@5": 0.02
+    "tier_a.by_provenance.synthetic.recall@5": 0.02
+    "tier_b.by_provenance.hand.groundedness": 0.03
+    "tier_b.by_provenance.synthetic.groundedness": 0.03
