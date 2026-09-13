@@ -48,6 +48,7 @@ def eval_retrieval(
     ),
     out: str | None = typer.Option(None, "--out", help="Write an EvalReport JSON here."),
 ) -> None:
+    """Tier A retrieval metrics — zero LLM, seconds. Exit 2 on stale golden chunk references."""
     settings = get_settings()
     path = Path(golden) if golden else project_path(settings.eval.golden_path)
     queries = load_golden(path)

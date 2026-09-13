@@ -41,32 +41,40 @@ code path. Each of these was evaluated and rejected with reasons recorded in PRD
 ```bash
 # Setup (once)
 uv python install 3.12
-uv sync                              # installs from uv.lock
-docker compose up -d qdrant          # vector store
-./scripts/bootstrap_models.sh        # pulls Ollama model + warms HF cache
+uv sync                                          # dev install from uv.lock
+docker compose up -d qdrant                      # vector store for local development
+uv run python scripts/bootstrap_models.py        # pulls the Ollama generator (host Ollama)
 
-# Run
-uv run uvicorn rag.api.main:app --reload    # API on :8000, docs at /docs
-uv run streamlit run ui/app.py              # demo UI on :8501
+# One-command demo — qdrant + api + ui in Docker; generation stays on host Ollama (ADR-028)
+docker compose run --rm api python scripts/bootstrap_models.py --warm   # once: fill the models volume
+docker compose up -d --wait                      # all healthy in ~21 s here; UI :8501, API :8000
+curl -X POST localhost:8000/ingest -H "Content-Type: application/json" -d '{"source":"self"}'
+
+# Run locally, without Docker
+uv run uvicorn rag.api.main:app --reload         # API on :8000, docs at /docs
+uv sync --group ui && uv run streamlit run ui/app.py   # demo UI on :8501
 
 # Ingest
-uv run rag ingest --source .                # index this repo
-uv run rag ingest --source . --force        # ignore content-hash cache
+uv run rag ingest --source .                     # index this repo (injection scan on)
+uv run rag ingest --source . --recreate          # drop and rebuild the collection first
+uv run rag ingest --source . --no-scan           # skip the scan — indexes a different corpus than the product serves
 
-# Evaluate
-uv run rag eval retrieval                   # Tier A — zero LLM, < 60 s
-uv run rag eval generation                  # Tier B — zero LLM, minutes
-uv run rag eval adversarial                 # attack-success + false-refusal rates
-uv run rag eval judge                       # Tier C — opt-in, LLM-judged
-uv run rag eval all --report                # everything + HTML report
-uv run rag eval promote-baseline            # explicit; never automatic
+# Evaluate — every report carries provenance; a baseline changes only by promotion
+uv run rag eval retrieval --out r.json           # Tier A — zero LLM, seconds
+uv run rag eval generation --out b.json          # Tier B — zero-LLM scoring, but generates every answer on CPU (~100 min)
+uv run rag eval adversarial                      # attack success + false refusal (--full runs generation too)
+uv run rag eval all --report                     # Tier A + B + adversarial -> JSON + HTML, gated if a baseline exists
+uv run rag eval gate r.json                      # exit 1 on regression against eval/baselines (FR-E7)
+uv run rag eval promote-baseline r.json          # the only way a baseline changes (FR-E8)
+uv run rag eval synthesize --n 25 --seed 7       # draft synthetic golden queries for human spot-check
+uv sync --extra judge && uv run rag eval judge b.json --limit 5   # Tier C — opt-in, LLM-judged
 
-# Benchmark (asserts the NFR latency targets)
+# Benchmark — times the INPUT rails only. NFR-2 counts all rails and is not met (ADR-029).
 uv run rag bench
 
 # Quality
-uv run pytest                               # all tests
-uv run pytest -m "not slow"                 # skip model-loading tests
+uv run pytest                                    # all tests
+uv run pytest -m "not slow and not integration"  # fast loop: no model loads, no live services
 uv run ruff check --fix . && uv run ruff format .
 uv run mypy src/
 ```

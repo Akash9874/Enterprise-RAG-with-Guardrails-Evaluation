@@ -44,6 +44,11 @@ def ingest(
         help="Scan chunks for prompt injection and quarantine those above t_block (FR-I7).",
     ),
 ) -> None:
+    """Index a directory into Qdrant, scanning each chunk for prompt injection (FR-I7).
+
+    Every chunk is stamped with the commit of the tree it came from, so eval provenance is
+    read back from the index (ADR-026). Use --recreate to drop stale chunks from earlier runs.
+    """
     settings = get_settings()
     scorer = None
     threshold = 0.8
@@ -80,7 +85,12 @@ def bench(
         None, help="Queries to benchmark (default: settings.eval.golden_path)."
     ),
 ) -> None:
-    """Assert the guardrail NFRs: overhead p50 <= 300 ms (NFR-2), escalation <= 10% (NFR-3)."""
+    """Time the INPUT guardrail rails; exit 1 if their p50 exceeds 300 ms.
+
+    A subset of NFR-2, which counts all rails. The output groundedness rail costs ~14 s per
+    typical answer on this CPU and is not timed here, so NFR-2 as defined is not met
+    (ADR-029). NFR-3, the escalation rate, is not measured by this command.
+    """
     settings = get_settings()
     path = Path(golden) if golden else project_path(settings.eval.golden_path)
     queries = [q.query for q in load_golden(path)]
