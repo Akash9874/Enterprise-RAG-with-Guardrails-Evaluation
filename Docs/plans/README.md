@@ -57,7 +57,7 @@ spec; do not substitute alternatives without amending the PRD.
 | **1** | [Ingestion + retrieval + Tier A eval](phase-1-retrieval-eval.md) | Ready to execute | `rag eval retrieval` prints Recall@5, NDCG@5, MRR, and reranker lift over ~50 golden queries in < 60 s. |
 | **2** | [Generation + citations](phase-2-generation.md) | Ready to execute | Every answer carries valid citations resolving to real chunks; fabricated markers stripped and counted. |
 | **3** | [Guardrails](phase-3-guardrails.md) | Complete | Adversarial suite runs; attack-success and false-refusal rates reported; guardrail overhead p50 ≤ 300 ms. |
-| **4** | Eval depth + demo | Roadmap below | CI fails on an injected retrieval regression; `docker compose up` reaches a working demo in ≤ 90 s. |
+| **4** | [Eval depth + demo](phase-4-eval-demo.md) | Ready to execute | CI fails on an injected retrieval regression; `docker compose up` reaches a working demo in ≤ 90 s. |
 
 ### Why phases 2–4 are roadmaps, not full task plans
 
